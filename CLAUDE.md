@@ -25,6 +25,7 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 - Mostrar en la esquina inferior derecha un número de versión pequeño (v1, v2...) que se incrementa en cada paso.
 - Al terminar cada paso, actualizar su estado en la tabla del Plan en el mismo commit.
 - index.html carga style.css y game.js con ?v=N, el mismo número de la versión visible. Actualizarlo en cada cambio de versión.
+- Después de fusionar, verificar que https://germanfeco20.github.io/runner-game/game.js?v=N contenga la versión nueva (esperar hasta 3 min). Si no puedes acceder a esa URL desde tu entorno, decirlo explícitamente.
 
 ## Plan
 | # | Paso | Estado |
