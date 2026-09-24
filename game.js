@@ -1,4 +1,4 @@
-const VERSION = 'v11';
+const VERSION = 'v12';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -68,8 +68,17 @@ const player = { y: 0, vy: 0 };
 let obstacles = [];
 let spawnTimer = FIRST_OBSTACLE_DELAY;
 
-// Estados: 'ready' (toca para empezar), 'playing', 'over' (congelado tras chocar).
+// Estados: 'ready' (toca para empezar), 'playing', 'paused' (toca para continuar), 'over' (congelado tras chocar).
 let state = 'ready';
+
+// En celular (pantalla táctil) el juego solo corre en vertical. En PC no se bloquea la horizontal.
+const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+const isLandscape = () => isTouchDevice && width > height;
+
+// Pausa la partida en curso; nunca se reanuda sola, solo con un toque.
+function pause() {
+  if (state === 'playing') state = 'paused';
+}
 let overAt = 0;
 
 // Puntaje = lados recorridos. El récord vive en localStorage.
@@ -118,7 +127,9 @@ function start() {
 }
 
 function onTap() {
-  if (state === 'ready') start();
+  if (isLandscape()) return; // "Gira tu celular": se ignoran los toques
+  if (state === 'paused') state = 'playing'; // continúa sin saltar
+  else if (state === 'ready') start();
   else if (state === 'playing') jump();
   else if (performance.now() - overAt >= RESTART_DELAY) start();
 }
@@ -140,6 +151,7 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   groundY = Math.round(height * 0.75);
   size = Math.round(Math.min(width, height * 0.6) * 0.1);
+  if (isLandscape()) pause();
   draw();
 }
 
@@ -405,9 +417,11 @@ function draw() {
     ctx.fillRect(0, 0, width, height);
   }
 
-  if (state === 'playing') drawScore();
-  if (state === 'ready') drawPanel([['Toca para empezar', 1]]);
-  if (state === 'over') {
+  if (state === 'playing' || state === 'paused') drawScore();
+  if (isLandscape()) drawPanel([['Gira tu celular', 1]]);
+  else if (state === 'paused') drawPanel([['Toca para continuar', 1]]);
+  else if (state === 'ready') drawPanel([['Toca para empezar', 1]]);
+  else if (state === 'over') {
     drawPanel([
       [`Puntaje: ${score()}`, 1.4],
       ...(newRecord ? [['¡Nuevo récord!', 1, '#ffd23f']] : []),
@@ -431,7 +445,7 @@ function loop(time) {
   const dt = lastTime ? Math.min((time - lastTime) / 1000, 1 / 30) : 0;
   lastTime = time;
   if (state === 'playing') update(dt);
-  updateFx(dt);
+  if (state !== 'paused') updateFx(dt);
   draw();
   requestAnimationFrame(loop);
 }
@@ -454,6 +468,15 @@ document.addEventListener('gesturestart', block);
 document.addEventListener('dblclick', block);
 document.addEventListener('contextmenu', block);
 
+// Cambio de app, bloqueo de pantalla o llamada entrante: pausa.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) pause();
+});
+window.addEventListener('pagehide', pause);
+window.addEventListener('blur', pause);
+
 window.addEventListener('resize', resize);
+// Algunos navegadores informan el tamaño nuevo un poco después de girar.
+window.addEventListener('orientationchange', () => setTimeout(resize, 150));
 resize();
 requestAnimationFrame(loop);

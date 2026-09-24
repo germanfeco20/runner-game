@@ -38,4 +38,4 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 | 5 | Puntaje por distancia y récord en localStorage | Hecho (v6) |
 | 6 | Dificultad progresiva con separación entre obstáculos siempre saltable | Hecho (v7, recalibrado en v9) |
 | 6b | Animaciones: estiramiento, polvo, temblor y destello, fondo con capas, cielo según dificultad, puntaje que salta | Hecho (v10) |
-| 7 | Pausa al cambiar de app, rotación y cambio de tamaño | Pendiente |
+| 7 | Pausa al cambiar de app, rotación y cambio de tamaño | Hecho (v12) |
