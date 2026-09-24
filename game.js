@@ -1,4 +1,4 @@
-const VERSION = 'v5';
+const VERSION = 'v6';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -26,6 +26,8 @@ const OBSTACLE_MAX_H = 1;
 const HITBOX_INSET = 0.15; // lados recortados por cada borde
 const RESTART_DELAY = 500; // ms en que se ignoran toques tras chocar
 
+const BEST_KEY = 'runner-game.best';
+
 let width = 0;
 let height = 0;
 let groundY = 0;
@@ -42,6 +44,29 @@ let spawnTimer = FIRST_OBSTACLE_DELAY;
 let state = 'ready';
 let overAt = 0;
 
+// Puntaje = lados recorridos. El récord vive en localStorage.
+let distance = 0;
+let best = loadBest();
+let newRecord = false;
+
+function loadBest() {
+  try {
+    return Number(localStorage.getItem(BEST_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveBest(value) {
+  try {
+    localStorage.setItem(BEST_KEY, String(value));
+  } catch {
+    // Sin almacenamiento (p. ej. navegación privada): el récord dura solo esta sesión.
+  }
+}
+
+const score = () => Math.floor(distance);
+
 const random = (min, max) => min + Math.random() * (max - min);
 
 function start() {
@@ -49,6 +74,8 @@ function start() {
   player.vy = 0;
   obstacles = [];
   spawnTimer = FIRST_OBSTACLE_DELAY;
+  distance = 0;
+  newRecord = false;
   state = 'playing';
 }
 
@@ -113,22 +140,50 @@ function updateObstacles(dt) {
 function update(dt) {
   updatePlayer(dt);
   updateObstacles(dt);
-  if (hitsObstacle()) {
-    state = 'over';
-    overAt = performance.now();
+  distance += SPEED * dt;
+  if (hitsObstacle()) gameOver();
+}
+
+function gameOver() {
+  state = 'over';
+  overAt = performance.now();
+  newRecord = score() > best;
+  if (newRecord) {
+    best = score();
+    saveBest(best);
   }
 }
 
-function drawMessage(text) {
-  const fontSize = Math.max(18, Math.round(size * 0.6));
-  const y = Math.round(groundY * 0.45);
+// Franja oscura centrada en el cielo con una o varias líneas: [texto, escala, color].
+function drawPanel(lines) {
+  const base = Math.max(18, Math.round(size * 0.6));
+  const heights = lines.map(([, scale]) => base * scale * 1.5);
+  const total = heights.reduce((a, b) => a + b, 0) + base;
+  let y = Math.round(groundY * 0.45 - total / 2);
   ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-  ctx.fillRect(0, y - fontSize * 1.2, width, fontSize * 2.4);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.fillRect(0, y, width, total);
+  y += base / 2;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(text, width / 2, y);
+  lines.forEach(([text, scale, color], i) => {
+    ctx.fillStyle = color || '#ffffff';
+    ctx.font = `bold ${Math.round(base * scale)}px sans-serif`;
+    ctx.fillText(text, width / 2, y + heights[i] / 2);
+    y += heights[i];
+  });
+}
+
+function drawScore() {
+  const fontSize = Math.max(36, Math.round(size * 1.2));
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.lineWidth = Math.max(4, fontSize / 8);
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.strokeText(String(score()), width / 2, fontSize * 0.6);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(String(score()), width / 2, fontSize * 0.6);
 }
 
 function draw() {
@@ -152,8 +207,16 @@ function draw() {
   ctx.fillStyle = '#e8452c';
   ctx.fillRect(Math.round(width * 0.2), groundY - size - player.y * size, size, size);
 
-  if (state === 'ready') drawMessage('Toca para empezar');
-  if (state === 'over') drawMessage('Toca para reiniciar');
+  if (state === 'playing') drawScore();
+  if (state === 'ready') drawPanel([['Toca para empezar', 1]]);
+  if (state === 'over') {
+    drawPanel([
+      [`Puntaje: ${score()}`, 1.4],
+      ...(newRecord ? [['¡Nuevo récord!', 1, '#ffd23f']] : []),
+      [`Récord: ${best}`, 0.9],
+      ['Toca para reiniciar', 0.8],
+    ]);
+  }
 
   // Versión
   ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
