@@ -1,4 +1,4 @@
-const VERSION = 'v9';
+const VERSION = 'v10';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -43,6 +43,19 @@ const RESTART_DELAY = 500; // ms en que se ignoran toques tras chocar
 
 const BEST_KEY = 'runner-game.best';
 
+// Animaciones: solo visuales, no cambian la física ni la zona de choque.
+const SHAKE_TIME = 0.25; // s
+const FLASH_TIME = 0.2; // s
+const MAX_PARTICLES = 48;
+// Cielo: color arriba y en el horizonte, de fácil a difícil. El horizonte queda claro para que
+// personaje y obstáculos siempre contrasten.
+const SKY_TOP = ['#87ceeb', '#3f4e9e'];
+const SKY_HORIZON = ['#d6f1ff', '#ffc9a0'];
+// Capas del fondo: posición como fracción del ciclo, altura y tamaño en lados. Velocidad relativa al suelo.
+const CLOUDS = { speed: 0.08, items: [[0.05, 0.2, 1], [0.32, 0.64, 0.7], [0.55, 0.23, 1.2], [0.8, 0.68, 0.8]] };
+const HILLS = { speed: 0.3, items: [[0, 4, 1.4], [0.27, 5, 2], [0.5, 3.5, 1.2], [0.74, 4.5, 1.7]] };
+const GROUND_MARK_SPACING = 1.5;
+
 let width = 0;
 let height = 0;
 let groundY = 0;
@@ -83,6 +96,8 @@ function saveBest(value) {
 
 const score = () => Math.floor(distance);
 
+const fx = { squash: 0, shake: 0, flash: 0, pop: 0, particles: [] };
+
 const lerp = (a, b, t) => a + (b - a) * t;
 const difficulty = () => Math.min(Math.max((elapsed - RAMP_START) / (RAMP_END - RAMP_START), 0), 1);
 const speed = () => lerp(SPEED_START, SPEED_MAX, difficulty());
@@ -97,6 +112,8 @@ function start() {
   distance = 0;
   elapsed = 0;
   newRecord = false;
+  fx.squash = 0;
+  fx.particles = [];
   state = 'playing';
 }
 
@@ -130,6 +147,7 @@ function jump() {
   if (player.y > 0) return;
   player.vy = JUMP_SPEED;
   player.y = 0.0001; // despega en este mismo toque, sin esperar al siguiente cuadro
+  fx.squash = -0.25; // se estira al despegar
   draw();
 }
 
@@ -140,7 +158,33 @@ function updatePlayer(dt) {
   if (player.y <= 0) {
     player.y = 0;
     player.vy = 0;
+    land();
   }
+}
+
+// Se aplasta al aterrizar y levanta polvo.
+function land() {
+  fx.squash = 0.3;
+  const x = (width * 0.2) / size + 0.5;
+  for (let i = 0; i < 8; i++) {
+    fx.particles.push({ x: x + random(-0.45, 0.45), y: 0.05, vx: random(-2.5, 1), vy: random(1, 3), life: 1, s: random(0.08, 0.16) });
+  }
+  if (fx.particles.length > MAX_PARTICLES) fx.particles.splice(0, fx.particles.length - MAX_PARTICLES);
+}
+
+function updateFx(dt) {
+  fx.squash *= Math.exp(-12 * dt);
+  fx.shake = Math.max(0, fx.shake - dt);
+  fx.flash = Math.max(0, fx.flash - dt);
+  fx.pop = Math.max(0, fx.pop - dt * 4);
+  const ground = state === 'playing' ? speed() : 0;
+  for (const p of fx.particles) {
+    p.x += (p.vx - ground) * dt;
+    p.vy -= 12 * dt;
+    p.y = Math.max(0, p.y + p.vy * dt);
+    p.life -= dt / 0.45;
+  }
+  fx.particles = fx.particles.filter((p) => p.life > 0);
 }
 
 function updateObstacles(dt) {
@@ -188,14 +232,18 @@ function spawnPattern(d) {
 function update(dt) {
   updatePlayer(dt);
   updateObstacles(dt);
+  const hundreds = Math.floor(score() / 100);
   distance += speed() * dt;
   elapsed += dt;
+  if (Math.floor(score() / 100) > hundreds) fx.pop = 1; // el puntaje salta cada 100
   if (hitsObstacle()) gameOver();
 }
 
 function gameOver() {
   state = 'over';
   overAt = performance.now();
+  fx.shake = SHAKE_TIME;
+  fx.flash = FLASH_TIME;
   newRecord = score() > best;
   if (newRecord) {
     best = score();
@@ -223,28 +271,122 @@ function drawPanel(lines) {
 }
 
 function drawScore() {
-  const fontSize = Math.max(36, Math.round(size * 1.2));
+  const bump = Math.sin(fx.pop * Math.PI); // 0 → 1 → 0
+  const fontSize = Math.round(Math.max(36, size * 1.2) * (1 + 0.35 * bump));
   ctx.font = `bold ${fontSize}px sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
   ctx.lineWidth = Math.max(4, fontSize / 8);
   ctx.lineJoin = 'round';
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)';
-  ctx.strokeText(String(score()), width / 2, fontSize * 0.6);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(String(score()), width / 2, fontSize * 0.6);
+  ctx.strokeText(String(score()), width / 2, Math.max(36, size * 1.2) * 0.6);
+  ctx.fillStyle = bump > 0.05 ? mixColor('#ffffff', '#ffd23f', bump) : '#ffffff';
+  ctx.fillText(String(score()), width / 2, Math.max(36, size * 1.2) * 0.6);
+}
+
+// Mezcla dos colores #rrggbb; t entre 0 y 1.
+function mixColor(a, b, t) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ch = (shift) => Math.round(lerp((pa >> shift) & 255, (pb >> shift) & 255, t));
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+}
+
+// Posición en pantalla (px) de un elemento que se repite en un ciclo, desplazado según la distancia.
+function wrapX(fraction, layerSpeed, period, margin) {
+  const x = (fraction * period - distance * layerSpeed) % period;
+  return ((x + period) % period - margin) * size;
+}
+
+// El degradado del cielo es caro de pintar en cada cuadro: se pinta una vez en un canvas aparte
+// y solo se rehace cuando la dificultad cambia un escalón (1/50) o cambia el tamaño de pantalla.
+const skyCache = { canvas: document.createElement('canvas'), key: '' };
+
+function skyImage(m) {
+  const step = Math.round(difficulty() * 50);
+  const key = `${step}:${width}:${height}`;
+  if (skyCache.key !== key) {
+    const dpr = window.devicePixelRatio || 1;
+    const c = skyCache.canvas;
+    c.width = Math.round((width + 2 * m) * dpr);
+    c.height = Math.round((groundY + m) * dpr);
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, c.height);
+    grad.addColorStop(0, mixColor(SKY_TOP[0], SKY_TOP[1], step / 50));
+    grad.addColorStop(1, mixColor(SKY_HORIZON[0], SKY_HORIZON[1], step / 50));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, c.width, c.height);
+    skyCache.key = key;
+  }
+  return skyCache.canvas;
+}
+
+function drawBackground(m) {
+  ctx.drawImage(skyImage(m), -m, -m, width + 2 * m, groundY + m);
+
+  // Nubes: solo en la mitad alta del cielo, lejos de los obstáculos.
+  const cloudPeriod = width / size + 4;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  for (const [f, y, s] of CLOUDS.items) {
+    const x = wrapX(f, CLOUDS.speed, cloudPeriod, 2);
+    const cy = groundY * y;
+    const r = s * size * 0.45;
+    ctx.beginPath();
+    ctx.arc(x, cy, r, 0, Math.PI * 2);
+    ctx.arc(x + r * 0.9, cy - r * 0.35, r * 0.8, 0, Math.PI * 2);
+    ctx.arc(x + r * 1.8, cy, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Colinas: tenues, para que los obstáculos resalten delante.
+  const hillPeriod = width / size + 6;
+  ctx.fillStyle = 'rgba(107, 142, 35, 0.28)';
+  for (const [f, w, h] of HILLS.items) {
+    const x = wrapX(f, HILLS.speed, hillPeriod, 3);
+    ctx.beginPath();
+    ctx.ellipse(x + (w * size) / 2, groundY, (w * size) / 2, h * size, 0, Math.PI, 0);
+    ctx.fill();
+  }
+
+  // Suelo con marcas que avanzan a la velocidad del juego.
+  ctx.fillStyle = '#6b8e23';
+  ctx.fillRect(-m, groundY, width + 2 * m, height - groundY + m);
+  ctx.fillStyle = '#4a6318';
+  ctx.fillRect(-m, groundY, width + 2 * m, 4);
+  ctx.fillStyle = '#5d7d1e';
+  const markPeriod = Math.ceil(width / size / GROUND_MARK_SPACING + 2) * GROUND_MARK_SPACING;
+  for (let i = 0; i * GROUND_MARK_SPACING < markPeriod; i++) {
+    const x = wrapX((i * GROUND_MARK_SPACING) / markPeriod, 1, markPeriod, 1);
+    ctx.fillRect(x, groundY + size * 0.45, size * 0.5, Math.max(2, size * 0.08));
+  }
+}
+
+function drawPlayer() {
+  // Estira en el aire según la velocidad y aplica el golpe de despegue o aterrizaje.
+  const air = player.y > 0 ? -0.12 * Math.min(Math.abs(player.vy) / JUMP_SPEED, 1) : 0;
+  const k = Math.min(Math.max(fx.squash + air, -0.3), 0.35);
+  const w = size * (1 + k);
+  const h = size * (1 - k);
+  const cx = Math.round(width * 0.2) + size / 2;
+  const bottom = groundY - player.y * size;
+  ctx.fillStyle = '#e8452c';
+  ctx.fillRect(cx - w / 2, bottom - h, w, h);
 }
 
 function draw() {
-  // Cielo
-  ctx.fillStyle = '#87ceeb';
-  ctx.fillRect(0, 0, width, groundY);
+  const m = size; // margen para que el temblor no deje bordes vacíos
+  const shake = fx.shake > 0 ? (fx.shake / SHAKE_TIME) * size * 0.25 : 0;
+  ctx.save();
+  if (shake) ctx.translate(random(-shake, shake), random(-shake, shake));
 
-  // Suelo
-  ctx.fillStyle = '#6b8e23';
-  ctx.fillRect(0, groundY, width, height - groundY);
-  ctx.fillStyle = '#4a6318';
-  ctx.fillRect(0, groundY, width, 4);
+  drawBackground(m);
+
+  // Polvo: detrás de los obstáculos para no taparlos.
+  for (const p of fx.particles) {
+    ctx.fillStyle = `rgba(222, 232, 190, ${0.8 * p.life})`;
+    const s = p.s * size;
+    ctx.fillRect(p.x * size - s / 2, groundY - p.y * size - s, s, s);
+  }
 
   // Obstáculos
   ctx.fillStyle = '#5b2a86';
@@ -252,9 +394,13 @@ function draw() {
     ctx.fillRect(o.x * size, groundY - o.h * size, o.w * size, o.h * size);
   }
 
-  // Personaje
-  ctx.fillStyle = '#e8452c';
-  ctx.fillRect(Math.round(width * 0.2), groundY - size - player.y * size, size, size);
+  drawPlayer();
+  ctx.restore();
+
+  if (fx.flash > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.7 * (fx.flash / FLASH_TIME)})`;
+    ctx.fillRect(0, 0, width, height);
+  }
 
   if (state === 'playing') drawScore();
   if (state === 'ready') drawPanel([['Toca para empezar', 1]]);
@@ -282,6 +428,7 @@ function loop(time) {
   const dt = lastTime ? Math.min((time - lastTime) / 1000, 1 / 30) : 0;
   lastTime = time;
   if (state === 'playing') update(dt);
+  updateFx(dt);
   draw();
   requestAnimationFrame(loop);
 }
