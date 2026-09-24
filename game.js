@@ -1,4 +1,4 @@
-const VERSION = 'v3';
+const VERSION = 'v4';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -11,6 +11,17 @@ const GRAVITY_UP = (2 * JUMP_HEIGHT) / (RISE_TIME * RISE_TIME);
 const GRAVITY_DOWN = GRAVITY_UP * FALL_FACTOR;
 const JUMP_SPEED = (2 * JUMP_HEIGHT) / RISE_TIME;
 
+// Obstáculos, también en lados del personaje. Nunca más altos que el personaje.
+const SPEED = 7; // lados por segundo: ritmo relajado
+const FIRST_OBSTACLE_DELAY = 2; // segundos antes del primer obstáculo
+// Separación medida en tiempo: con 0,54 s en el aire, 1,1 s deja tiempo de aterrizar y reaccionar.
+const GAP_MIN = 1.1;
+const GAP_MAX = 2.2;
+const OBSTACLE_MIN_W = 0.5;
+const OBSTACLE_MAX_W = 0.8;
+const OBSTACLE_MIN_H = 0.7;
+const OBSTACLE_MAX_H = 1;
+
 let width = 0;
 let height = 0;
 let groundY = 0;
@@ -18,6 +29,12 @@ let size = 0;
 
 // Posición vertical sobre el suelo y velocidad, en lados del personaje.
 const player = { y: 0, vy: 0 };
+
+// Cada obstáculo: x (borde izquierdo), w y h, en lados del personaje.
+let obstacles = [];
+let spawnTimer = FIRST_OBSTACLE_DELAY;
+
+const random = (min, max) => min + Math.random() * (max - min);
 
 // Ajusta el canvas al tamaño de la pantalla, nítido en pantallas de alta densidad.
 function resize() {
@@ -39,7 +56,7 @@ function jump() {
   draw();
 }
 
-function update(dt) {
+function updatePlayer(dt) {
   if (player.y <= 0) return;
   player.vy -= (player.vy > 0 ? GRAVITY_UP : GRAVITY_DOWN) * dt;
   player.y += player.vy * dt;
@@ -47,6 +64,26 @@ function update(dt) {
     player.y = 0;
     player.vy = 0;
   }
+}
+
+function updateObstacles(dt) {
+  for (const o of obstacles) o.x -= SPEED * dt;
+  obstacles = obstacles.filter((o) => o.x + o.w > 0);
+
+  spawnTimer -= dt;
+  if (spawnTimer <= 0) {
+    obstacles.push({
+      x: width / size,
+      w: random(OBSTACLE_MIN_W, OBSTACLE_MAX_W),
+      h: random(OBSTACLE_MIN_H, OBSTACLE_MAX_H),
+    });
+    spawnTimer = random(GAP_MIN, GAP_MAX);
+  }
+}
+
+function update(dt) {
+  updatePlayer(dt);
+  updateObstacles(dt);
 }
 
 function draw() {
@@ -59,6 +96,12 @@ function draw() {
   ctx.fillRect(0, groundY, width, height - groundY);
   ctx.fillStyle = '#4a6318';
   ctx.fillRect(0, groundY, width, 4);
+
+  // Obstáculos
+  ctx.fillStyle = '#5b2a86';
+  for (const o of obstacles) {
+    ctx.fillRect(o.x * size, groundY - o.h * size, o.w * size, o.h * size);
+  }
 
   // Personaje
   ctx.fillStyle = '#e8452c';
