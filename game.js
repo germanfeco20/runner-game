@@ -1,4 +1,4 @@
-const VERSION = 'v8';
+const VERSION = 'v9';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -12,22 +12,30 @@ const GRAVITY_DOWN = GRAVITY_UP * FALL_FACTOR;
 const JUMP_SPEED = (2 * JUMP_HEIGHT) / RISE_TIME;
 const AIR_TIME = RISE_TIME * (1 + 1 / Math.sqrt(FALL_FACTOR)); // ~0,44 s
 
-// Obstáculos, también en lados del personaje. Nunca más altos que el personaje.
+// Obstáculos, también en lados del personaje.
 const FIRST_OBSTACLE_DELAY = 2; // segundos antes del primer obstáculo
 
 // Dificultad: sube en línea recta entre RAMP_START y RAMP_END segundos y luego se queda en el tope.
 const RAMP_START = 5;
-const RAMP_END = 60;
+const RAMP_END = 28;
 const SPEED_START = 8; // lados por segundo
-const SPEED_MAX = 14;
-// Separación entre obstáculos medida en tiempo, de fácil a exigente.
+const SPEED_MAX = 13;
+// Separación entre patrones medida en tiempo desde que termina uno hasta que empieza el siguiente.
 // El mínimo nunca baja de AIR_TIME + MIN_GROUND_TIME: siempre da tiempo de aterrizar y volver a saltar.
-const MIN_GROUND_TIME = 0.3;
-const GAP_EASY = [1.1, 2.2];
-const GAP_HARD = [AIR_TIME + MIN_GROUND_TIME, 1.3];
+const MIN_GROUND_TIME = 0.25;
+const GAP_EASY = [1.1, 2.0];
+const GAP_HARD = [AIR_TIME + MIN_GROUND_TIME, 1.0];
 // Tamaño [mín, máx]: a velocidad baja el obstáculo se cruza más lento, por eso empieza pequeño.
 const OBSTACLE_EASY = { w: [0.4, 0.6], h: [0.6, 0.85] };
-const OBSTACLE_HARD = { w: [0.5, 0.9], h: [0.75, 1] };
+const OBSTACLE_HARD = { w: [0.5, 1], h: [0.7, 1] };
+// Variedad: la probabilidad crece con la dificultad hasta estos topes.
+const TALL_CHANCE = 0.3; // obstáculo más alto que el personaje
+const TALL_H = [1.05, 1.3];
+const DOUBLE_CHANCE = 0.3; // dos obstáculos juntos que se saltan de una vez
+const DOUBLE_W = [0.35, 0.55];
+const DOUBLE_GAP = [0.4, 0.8];
+// Todo patrón debe dejar al menos este margen de tiempo para tocar; si no, se simplifica.
+const MIN_WINDOW = 0.14;
 
 // Choque justo: la zona de choque del personaje es más pequeña que su dibujo.
 const HITBOX_INSET = 0.15; // lados recortados por cada borde
@@ -142,14 +150,39 @@ function updateObstacles(dt) {
   spawnTimer -= dt;
   if (spawnTimer <= 0) {
     const d = difficulty();
-    const range = (key, i) => lerp(OBSTACLE_EASY[key][i], OBSTACLE_HARD[key][i], d);
-    obstacles.push({
-      x: width / size,
-      w: random(range('w', 0), range('w', 1)),
-      h: random(range('h', 0), range('h', 1)),
-    });
-    spawnTimer = random(lerp(GAP_EASY[0], GAP_HARD[0], d), lerp(GAP_EASY[1], GAP_HARD[1], d));
+    const span = spawnPattern(d);
+    const gap = random(lerp(GAP_EASY[0], GAP_HARD[0], d), lerp(GAP_EASY[1], GAP_HARD[1], d));
+    spawnTimer = span / speed() + gap;
   }
+}
+
+// Segundos en que tocar hace pasar limpio un patrón de altura h y ancho total w a velocidad v.
+function clearWindow(h, w, v) {
+  const a = Math.max(h - HITBOX_INSET, 0);
+  if (a >= JUMP_HEIGHT) return 0;
+  const above = Math.sqrt((2 * (JUMP_HEIGHT - a)) / GRAVITY_UP) + Math.sqrt((2 * (JUMP_HEIGHT - a)) / GRAVITY_DOWN);
+  return above - (1 - 2 * HITBOX_INSET + w) / v;
+}
+
+// Crea un patrón (uno o dos obstáculos) en el borde derecho y devuelve su ancho total.
+function spawnPattern(d) {
+  const range = (key, i) => lerp(OBSTACLE_EASY[key][i], OBSTACLE_HARD[key][i], d);
+  const height = () => (Math.random() < TALL_CHANCE * d ? random(...TALL_H) : random(range('h', 0), range('h', 1)));
+  const single = () => [{ x: 0, w: random(range('w', 0), range('w', 1)), h: random(range('h', 0), range('h', 1)) }];
+  let boxes;
+  if (Math.random() < DOUBLE_CHANCE * d) {
+    const w1 = random(...DOUBLE_W);
+    boxes = [{ x: 0, w: w1, h: height() }, { x: w1 + random(...DOUBLE_GAP), w: random(...DOUBLE_W), h: height() }];
+  } else {
+    boxes = [{ x: 0, w: random(range('w', 0), range('w', 1)), h: height() }];
+  }
+  const fits = (b) => clearWindow(Math.max(...b.map((o) => o.h)), b[b.length - 1].x + b[b.length - 1].w, speed()) >= MIN_WINDOW;
+  if (!fits(boxes)) boxes = single();
+
+  const pattern = {};
+  for (const b of boxes) obstacles.push({ x: width / size + b.x, w: b.w, h: b.h, pattern });
+  const last = boxes[boxes.length - 1];
+  return last.x + last.w;
 }
 
 function update(dt) {
