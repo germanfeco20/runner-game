@@ -32,7 +32,7 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 | 1 | Canvas responsive y nítido, suelo, bloqueo de scroll y zoom | Hecho (v1) |
 | 2 | Personaje cuadrado con salto con peso | Hecho (v2) |
 | 3 | Obstáculos que aparecen a la derecha y se desplazan a la izquierda, sin choque | Hecho (v4) |
-| 4 | Choque, estados de juego (inicio, jugando, game over) y reinicio | Pendiente |
+| 4 | Choque, estados de juego (inicio, jugando, game over) y reinicio | Hecho (v5) |
 | 5 | Puntaje por distancia y récord en localStorage | Pendiente |
 | 6 | Dificultad progresiva con separación entre obstáculos siempre saltable | Pendiente |
 | 7 | Pausa al cambiar de app, rotación y cambio de tamaño | Pendiente |

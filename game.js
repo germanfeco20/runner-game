@@ -1,4 +1,4 @@
-const VERSION = 'v4';
+const VERSION = 'v5';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -22,6 +22,10 @@ const OBSTACLE_MAX_W = 0.8;
 const OBSTACLE_MIN_H = 0.7;
 const OBSTACLE_MAX_H = 1;
 
+// Choque justo: la zona de choque del personaje es más pequeña que su dibujo.
+const HITBOX_INSET = 0.15; // lados recortados por cada borde
+const RESTART_DELAY = 500; // ms en que se ignoran toques tras chocar
+
 let width = 0;
 let height = 0;
 let groundY = 0;
@@ -34,7 +38,32 @@ const player = { y: 0, vy: 0 };
 let obstacles = [];
 let spawnTimer = FIRST_OBSTACLE_DELAY;
 
+// Estados: 'ready' (toca para empezar), 'playing', 'over' (congelado tras chocar).
+let state = 'ready';
+let overAt = 0;
+
 const random = (min, max) => min + Math.random() * (max - min);
+
+function start() {
+  player.y = 0;
+  player.vy = 0;
+  obstacles = [];
+  spawnTimer = FIRST_OBSTACLE_DELAY;
+  state = 'playing';
+}
+
+function onTap() {
+  if (state === 'ready') start();
+  else if (state === 'playing') jump();
+  else if (performance.now() - overAt >= RESTART_DELAY) start();
+}
+
+function hitsObstacle() {
+  const left = (width * 0.2) / size + HITBOX_INSET;
+  const right = left + 1 - 2 * HITBOX_INSET;
+  const bottom = player.y + HITBOX_INSET;
+  return obstacles.some((o) => o.x < right && o.x + o.w > left && bottom < o.h);
+}
 
 // Ajusta el canvas al tamaño de la pantalla, nítido en pantallas de alta densidad.
 function resize() {
@@ -84,6 +113,22 @@ function updateObstacles(dt) {
 function update(dt) {
   updatePlayer(dt);
   updateObstacles(dt);
+  if (hitsObstacle()) {
+    state = 'over';
+    overAt = performance.now();
+  }
+}
+
+function drawMessage(text) {
+  const fontSize = Math.max(18, Math.round(size * 0.6));
+  const y = Math.round(groundY * 0.45);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  ctx.fillRect(0, y - fontSize * 1.2, width, fontSize * 2.4);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `bold ${fontSize}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, width / 2, y);
 }
 
 function draw() {
@@ -107,6 +152,9 @@ function draw() {
   ctx.fillStyle = '#e8452c';
   ctx.fillRect(Math.round(width * 0.2), groundY - size - player.y * size, size, size);
 
+  if (state === 'ready') drawMessage('Toca para empezar');
+  if (state === 'over') drawMessage('Toca para reiniciar');
+
   // Versión
   ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
   ctx.font = '12px sans-serif';
@@ -120,7 +168,7 @@ function loop(time) {
   // Tope de 1/30 s por cuadro para que el salto no se desborde tras una pausa.
   const dt = lastTime ? Math.min((time - lastTime) / 1000, 1 / 30) : 0;
   lastTime = time;
-  update(dt);
+  if (state === 'playing') update(dt);
   draw();
   requestAnimationFrame(loop);
 }
@@ -128,12 +176,12 @@ function loop(time) {
 // Controles: toque o clic (pointerdown) y barra espaciadora.
 canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  jump();
+  onTap();
 });
 document.addEventListener('keydown', (e) => {
   if (e.code !== 'Space') return;
   e.preventDefault();
-  if (!e.repeat) jump();
+  if (!e.repeat) onTap();
 });
 
 // Bloquea scroll, zoom y gestos del navegador (Safari iOS ignora user-scalable=no).
