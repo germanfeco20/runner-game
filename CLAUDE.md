@@ -23,3 +23,15 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 - No agregar funcionalidades que no pedí.
 - Cada paso terminado se fusiona a main para probarlo en el celular vía GitHub Pages.
 - Mostrar en la esquina inferior derecha un número de versión pequeño (v1, v2...) que se incrementa en cada paso.
+- Al terminar cada paso, actualizar su estado en la tabla del Plan en el mismo commit.
+
+## Plan
+| # | Paso | Estado |
+|---|---|---|
+| 1 | Canvas responsive y nítido, suelo, bloqueo de scroll y zoom | Hecho (v1) |
+| 2 | Personaje cuadrado con salto con peso | Hecho (v2) |
+| 3 | Obstáculos que aparecen a la derecha y se desplazan a la izquierda, sin choque | Pendiente |
+| 4 | Choque, estados de juego (inicio, jugando, game over) y reinicio | Pendiente |
+| 5 | Puntaje por distancia y récord en localStorage | Pendiente |
+| 6 | Dificultad progresiva con separación entre obstáculos siempre saltable | Pendiente |
+| 7 | Pausa al cambiar de app, rotación y cambio de tamaño | Pendiente |
