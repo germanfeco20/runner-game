@@ -1,26 +1,33 @@
-const VERSION = 'v6';
+const VERSION = 'v7';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
 // Salto medido en "lados del personaje", así se siente igual en cualquier pantalla.
 const JUMP_HEIGHT = 2.2; // altura máxima: pasa sobre un obstáculo de 1 lado con margen
-const RISE_TIME = 0.3; // segundos hasta la cima
-const FALL_FACTOR = 1.6; // la caída tiene más gravedad que la subida: salto con peso
+const RISE_TIME = 0.25; // segundos hasta la cima
+const FALL_FACTOR = 1.8; // la caída tiene más gravedad que la subida: salto con peso
 const GRAVITY_UP = (2 * JUMP_HEIGHT) / (RISE_TIME * RISE_TIME);
 const GRAVITY_DOWN = GRAVITY_UP * FALL_FACTOR;
 const JUMP_SPEED = (2 * JUMP_HEIGHT) / RISE_TIME;
+const AIR_TIME = RISE_TIME * (1 + 1 / Math.sqrt(FALL_FACTOR)); // ~0,44 s
 
 // Obstáculos, también en lados del personaje. Nunca más altos que el personaje.
-const SPEED = 7; // lados por segundo: ritmo relajado
 const FIRST_OBSTACLE_DELAY = 2; // segundos antes del primer obstáculo
-// Separación medida en tiempo: con 0,54 s en el aire, 1,1 s deja tiempo de aterrizar y reaccionar.
-const GAP_MIN = 1.1;
-const GAP_MAX = 2.2;
-const OBSTACLE_MIN_W = 0.5;
-const OBSTACLE_MAX_W = 0.8;
-const OBSTACLE_MIN_H = 0.7;
-const OBSTACLE_MAX_H = 1;
+
+// Dificultad: sube en línea recta entre RAMP_START y RAMP_END segundos y luego se queda en el tope.
+const RAMP_START = 5;
+const RAMP_END = 60;
+const SPEED_START = 8; // lados por segundo
+const SPEED_MAX = 14;
+// Separación entre obstáculos medida en tiempo, de fácil a exigente.
+// El mínimo nunca baja de AIR_TIME + MIN_GROUND_TIME: siempre da tiempo de aterrizar y volver a saltar.
+const MIN_GROUND_TIME = 0.3;
+const GAP_EASY = [1.1, 2.2];
+const GAP_HARD = [AIR_TIME + MIN_GROUND_TIME, 1.3];
+// Tamaño [mín, máx]: a velocidad baja el obstáculo se cruza más lento, por eso empieza pequeño.
+const OBSTACLE_EASY = { w: [0.4, 0.6], h: [0.6, 0.85] };
+const OBSTACLE_HARD = { w: [0.5, 0.9], h: [0.75, 1] };
 
 // Choque justo: la zona de choque del personaje es más pequeña que su dibujo.
 const HITBOX_INSET = 0.15; // lados recortados por cada borde
@@ -46,6 +53,7 @@ let overAt = 0;
 
 // Puntaje = lados recorridos. El récord vive en localStorage.
 let distance = 0;
+let elapsed = 0; // segundos de partida
 let best = loadBest();
 let newRecord = false;
 
@@ -67,6 +75,10 @@ function saveBest(value) {
 
 const score = () => Math.floor(distance);
 
+const lerp = (a, b, t) => a + (b - a) * t;
+const difficulty = () => Math.min(Math.max((elapsed - RAMP_START) / (RAMP_END - RAMP_START), 0), 1);
+const speed = () => lerp(SPEED_START, SPEED_MAX, difficulty());
+
 const random = (min, max) => min + Math.random() * (max - min);
 
 function start() {
@@ -75,6 +87,7 @@ function start() {
   obstacles = [];
   spawnTimer = FIRST_OBSTACLE_DELAY;
   distance = 0;
+  elapsed = 0;
   newRecord = false;
   state = 'playing';
 }
@@ -123,24 +136,27 @@ function updatePlayer(dt) {
 }
 
 function updateObstacles(dt) {
-  for (const o of obstacles) o.x -= SPEED * dt;
+  for (const o of obstacles) o.x -= speed() * dt;
   obstacles = obstacles.filter((o) => o.x + o.w > 0);
 
   spawnTimer -= dt;
   if (spawnTimer <= 0) {
+    const d = difficulty();
+    const range = (key, i) => lerp(OBSTACLE_EASY[key][i], OBSTACLE_HARD[key][i], d);
     obstacles.push({
       x: width / size,
-      w: random(OBSTACLE_MIN_W, OBSTACLE_MAX_W),
-      h: random(OBSTACLE_MIN_H, OBSTACLE_MAX_H),
+      w: random(range('w', 0), range('w', 1)),
+      h: random(range('h', 0), range('h', 1)),
     });
-    spawnTimer = random(GAP_MIN, GAP_MAX);
+    spawnTimer = random(lerp(GAP_EASY[0], GAP_HARD[0], d), lerp(GAP_EASY[1], GAP_HARD[1], d));
   }
 }
 
 function update(dt) {
   updatePlayer(dt);
   updateObstacles(dt);
-  distance += SPEED * dt;
+  distance += speed() * dt;
+  elapsed += dt;
   if (hitsObstacle()) gameOver();
 }
 
