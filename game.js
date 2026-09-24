@@ -1,4 +1,4 @@
-const VERSION = 'v10';
+const VERSION = 'v11';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -292,7 +292,9 @@ function mixColor(a, b, t) {
   return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
 }
 
-// Posición en pantalla (px) de un elemento que se repite en un ciclo, desplazado según la distancia.
+// Posición en pantalla (px) del borde izquierdo de un elemento que se repite en un ciclo.
+// Vuelve a la derecha solo cuando ya salió `margin` lados por la izquierda: margin debe ser
+// al menos el ancho del elemento, y el ciclo al menos el ancho de pantalla más ese margen.
 function wrapX(fraction, layerSpeed, period, margin) {
   const x = (fraction * period - distance * layerSpeed) % period;
   return ((x + period) % period - margin) * size;
@@ -339,10 +341,11 @@ function drawBackground(m) {
   }
 
   // Colinas: tenues, para que los obstáculos resalten delante.
-  const hillPeriod = width / size + 6;
+  const hillMargin = Math.max(...HILLS.items.map(([, w]) => w)) + 1; // +1: que salga del todo, sin dejar un borde
+  const hillPeriod = width / size + 2 * hillMargin;
   ctx.fillStyle = 'rgba(107, 142, 35, 0.28)';
   for (const [f, w, h] of HILLS.items) {
-    const x = wrapX(f, HILLS.speed, hillPeriod, 3);
+    const x = wrapX(f, HILLS.speed, hillPeriod, hillMargin);
     ctx.beginPath();
     ctx.ellipse(x + (w * size) / 2, groundY, (w * size) / 2, h * size, 0, Math.PI, 0);
     ctx.fill();
