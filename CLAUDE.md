@@ -21,3 +21,5 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 - Antes de un cambio grande: proponer plan y esperar mi aprobación.
 - Después de cada cambio: explicar en máximo 3 líneas qué cambió y cómo probarlo.
 - No agregar funcionalidades que no pedí.
+- Cada paso terminado se fusiona a main para probarlo en el celular vía GitHub Pages.
+- Mostrar en la esquina inferior derecha un número de versión pequeño (v1, v2...) que se incrementa en cada paso.
