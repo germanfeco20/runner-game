@@ -1,4 +1,4 @@
-const VERSION = 'v7';
+const VERSION = 'v8';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -229,6 +229,7 @@ function draw() {
     drawPanel([
       [`Puntaje: ${score()}`, 1.4],
       ...(newRecord ? [['¡Nuevo récord!', 1, '#ffd23f']] : []),
+      [`Tiempo: ${Math.floor(elapsed)} s`, 0.9],
       [`Récord: ${best}`, 0.9],
       ['Toca para reiniciar', 0.8],
     ]);
