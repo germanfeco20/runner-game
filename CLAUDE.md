@@ -62,4 +62,17 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 | A2 | Ciudad (Muy denso), pasarela y ciclo día/noche en el juego, empezando al atardecer; modo ?debug=1 con FPS y zona de choque | Hecho (v14) |
 | A3 | Obstáculos #ff2e63 en el juego: barreras de energía y bloques con franjas | Hecho (v15) |
 | A4 | Androide en el juego (carrera, salto, aterrizaje con humo, choque con chispas), zona de choque idéntica; posición fija del personaje (arregla el desfase al redimensionar en PC) | Hecho (v16) |
+| A5 | Cierre: fluidez, contraste día/noche, ícono con el androide | Movido al final de la fase B |
+
+### Fase de distritos (variedad en el recorrido infinito)
+Reglas: un solo toque siempre. Cada distrito introduce UN obstáculo nuevo: primero solo y fácil, después combinado con los anteriores. Todo patrón se comprueba con el jugador automático antes de aparecer; si no tiene solución, se descarta. Al entrar a un distrito la velocidad baja un poco y vuelve a subir (sierra), para que lo nuevo se aprenda sin la velocidad máxima.
+
+| # | Paso | Estado |
+|---|---|---|
+| B1 | Sistema de distritos sin obstáculos nuevos: distrito 1 corto (~20 s) y luego cada ~30 s, aviso "DISTRITO N: NOMBRE", cambio visual (color de neón dominante), velocidad en sierra; Game Over muestra el distrito y el récord guarda el mejor distrito | Pendiente |
+| B2 | Validador por simulación de patrones + Distrito 2: huecos en la pasarela (caer = Game Over) | Pendiente |
+| B3 | Distrito 3: barreras láser intermitentes (siempre pasables: apagadas al llegar o saltables) | Pendiente |
+| B4 | Distrito 4: drones a la altura de la cabeza (hay que NO saltar); combinaciones verificadas por el validador | Pendiente |
+| B5 | Distrito 5: plataformas elevadas. Cambio grande: plan propio y aprobación antes de programar | Pendiente |
+| B6 | Recalibrar con datos reales: tiempos y distrito alcanzado en Game Over; ajustar duración de distritos y sierra | Pendiente |
 | A5 | Cierre: fluidez, contraste día/noche, ícono con el androide | Pendiente |
