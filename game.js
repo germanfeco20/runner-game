@@ -1,4 +1,4 @@
-const VERSION = 'v12';
+const VERSION = 'v13';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -388,7 +388,25 @@ function drawPlayer() {
   ctx.fillRect(cx - w / 2, bottom - h, w, h);
 }
 
+function drawVersion() {
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+  ctx.font = '12px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(VERSION, width - 8, height - 8);
+}
+
 function draw() {
+  // En horizontal no se juega: fondo liso y solo el mensaje. El mundo no se dibuja porque la
+  // posición del personaje depende del ancho de pantalla y no coincidiría con la de los obstáculos.
+  if (isLandscape()) {
+    ctx.fillStyle = '#4a6a8a';
+    ctx.fillRect(0, 0, width, height);
+    drawPanel([['Gira tu celular', 1]]);
+    drawVersion();
+    return;
+  }
+
   const m = size; // margen para que el temblor no deje bordes vacíos
   const shake = fx.shake > 0 ? (fx.shake / SHAKE_TIME) * size * 0.25 : 0;
   ctx.save();
@@ -418,8 +436,7 @@ function draw() {
   }
 
   if (state === 'playing' || state === 'paused') drawScore();
-  if (isLandscape()) drawPanel([['Gira tu celular', 1]]);
-  else if (state === 'paused') drawPanel([['Toca para continuar', 1]]);
+  if (state === 'paused') drawPanel([['Toca para continuar', 1]]);
   else if (state === 'ready') drawPanel([['Toca para empezar', 1]]);
   else if (state === 'over') {
     drawPanel([
@@ -431,12 +448,7 @@ function draw() {
     ]);
   }
 
-  // Versión
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-  ctx.font = '12px sans-serif';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText(VERSION, width - 8, height - 8);
+  drawVersion();
 }
 
 let lastTime = 0;
