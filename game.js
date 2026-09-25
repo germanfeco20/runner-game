@@ -1,4 +1,4 @@
-const VERSION = 'v14';
+const VERSION = 'v15';
 
 // Modo de depuración: ?debug=1 en la URL muestra los FPS y la zona de choque.
 const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
@@ -58,6 +58,7 @@ const DAWN = ['#6f7fb0', '#d6c7b8'];
 const BUILDING_DAY = '#4a5068';
 const BUILDING_NIGHT = '#151a3d';
 const NEON = ['#00f0ff', '#b026ff', '#ffd600'];
+const OBSTACLE = '#ff2e63'; // exclusivo de los obstáculos
 const WARNING = '#ff5a36'; // luces de aviso: solo en techos, lejos de la franja de juego
 // Ciclo día/noche: fracción del ciclo (0 día, ~0,4 atardecer, ~0,66 noche, ~0,92 amanecer).
 const CYCLE_SECONDS = 120;
@@ -83,6 +84,7 @@ const player = { y: 0, vy: 0 };
 // Cada obstáculo: x (borde izquierdo), w y h, en lados del personaje.
 let obstacles = [];
 let spawnTimer = FIRST_OBSTACLE_DELAY;
+let obstacleCount = 0;
 
 // Estados: 'ready' (toca para empezar), 'playing', 'paused' (toca para continuar), 'over' (congelado tras chocar).
 let state = 'ready';
@@ -170,6 +172,7 @@ function resize() {
   size = Math.round(Math.min(width, height * 0.6) * 0.1);
   if (isLandscape()) pause();
   skyCache.key = '';
+  glowMagenta = null;
   puffSprite = null;
   buildCity();
   draw();
@@ -256,7 +259,12 @@ function spawnPattern(d) {
   if (!fits(boxes)) boxes = single();
 
   const pattern = {};
-  for (const b of boxes) obstacles.push({ x: width / size + b.x, w: b.w, h: b.h, pattern });
+  for (const b of boxes) {
+    // Aspecto: los altos son barreras de energía; los demás alternan barrera y bloque con franjas.
+    // (Sin Math.random, para no alterar la secuencia de obstáculos.)
+    const type = b.h > 1 || obstacleCount++ % 2 === 0 ? 'barrier' : 'block';
+    obstacles.push({ x: width / size + b.x, w: b.w, h: b.h, pattern, type });
+  }
   const last = boxes[boxes.length - 1];
   return last.x + last.w;
 }
@@ -914,6 +922,70 @@ function puff() {
 }
 
 
+// ---------- Obstáculos (#ff2e63) ----------
+let glowMagenta = null;
+function magentaGlow() {
+  if (!glowMagenta) {
+    const [c, g] = offscreen(64, 64);
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, rgba(OBSTACLE, 0.7));
+    grad.addColorStop(1, rgba(OBSTACLE, 0));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    glowMagenta = c;
+  }
+  return glowMagenta;
+}
+
+function drawBarrier(o, night) {
+  const x = o.x * size, w = o.w * size, h = o.h * size, top = groundY - h;
+  const post = Math.max(3, size * 0.12);
+  ctx.globalAlpha = 0.25 + 0.35 * night;
+  ctx.drawImage(magentaGlow(), x - w * 0.4, top - h * 0.2, w * 1.8, h * 1.4);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = rgba(OBSTACLE, 0.55);
+  ctx.fillRect(x + post, top + size * 0.08, w - 2 * post, h - size * 0.08);
+  ctx.fillStyle = mix(OBSTACLE, '#ffffff', 0.45);
+  const step = size * 0.22;
+  const offY = (clock * size * 1.5) % step;
+  for (let y = groundY - offY; y > top + size * 0.1; y -= step) ctx.fillRect(x + post, y, w - 2 * post, Math.max(1, size * 0.03));
+  ctx.fillStyle = OBSTACLE;
+  ctx.fillRect(x + w / 2 - Math.max(1, size * 0.02), top + size * 0.08, Math.max(2, size * 0.04), h - size * 0.08);
+  ctx.fillStyle = '#20222d';
+  ctx.fillRect(x, top, post, h);
+  ctx.fillRect(x + w - post, top, post, h);
+  ctx.fillStyle = OBSTACLE;
+  ctx.fillRect(x - post * 0.2, top, post * 1.4, Math.max(2, size * 0.07));
+  ctx.fillRect(x + w - post * 1.2, top, post * 1.4, Math.max(2, size * 0.07));
+}
+
+function drawBlock(o) {
+  const x = o.x * size, w = o.w * size, h = o.h * size, top = groundY - h;
+  ctx.fillStyle = '#1b1c24';
+  ctx.fillRect(x, top, w, h);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + size * 0.06, top + size * 0.12, w - size * 0.12, h * 0.42);
+  ctx.clip();
+  ctx.fillStyle = OBSTACLE;
+  const sw = size * 0.2;
+  for (let sx = x - h; sx < x + w + h; sx += sw * 2) {
+    ctx.beginPath();
+    ctx.moveTo(sx, top + size * 0.12 + h * 0.42);
+    ctx.lineTo(sx + sw, top + size * 0.12 + h * 0.42);
+    ctx.lineTo(sx + sw + h * 0.42, top + size * 0.12);
+    ctx.lineTo(sx + h * 0.42, top + size * 0.12);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle = OBSTACLE;
+  ctx.fillRect(x, top, w, Math.max(2, size * 0.06));
+  ctx.fillStyle = '#2c2e3a';
+  ctx.fillRect(x, groundY - h * 0.28, w, Math.max(1, size * 0.03));
+}
+
+
 function drawPlayer() {
   // Estira en el aire según la velocidad y aplica el golpe de despegue o aterrizaje.
   const air = player.y > 0 ? -0.12 * Math.min(Math.abs(player.vy) / JUMP_SPEED, 1) : 0;
@@ -969,11 +1041,8 @@ function draw() {
     ctx.fillRect(p.x * size - s / 2, groundY - p.y * size - s, s, s);
   }
 
-  // Obstáculos
-  ctx.fillStyle = '#5b2a86';
-  for (const o of obstacles) {
-    ctx.fillRect(o.x * size, groundY - o.h * size, o.w * size, o.h * size);
-  }
+  // Obstáculos (#ff2e63)
+  for (const o of obstacles) (o.type === 'barrier' ? drawBarrier(o, d) : drawBlock(o));
 
   drawPlayer();
   ctx.restore();

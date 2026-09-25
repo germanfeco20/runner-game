@@ -60,6 +60,6 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 | A1.2 | arte.html, parte "arte 2": ciudad en 3 capas, ciclo día/noche con parpadeo, 2 tipos de obstáculo, 3 variantes de día | Hecho (Día B elegido; ciudad rehecha en arte 3) |
 | A1.3 | arte.html, parte "arte 3": ciudad con mucho más neón y tecnología, densidad Denso / Muy denso, pierna sin pie, humo oscuro de día | Hecho (aprobado: Muy denso) |
 | A2 | Ciudad (Muy denso), pasarela y ciclo día/noche en el juego, empezando al atardecer; modo ?debug=1 con FPS y zona de choque | Hecho (v14) |
-| A3 | Obstáculos #ff2e63 en el juego | Pendiente |
+| A3 | Obstáculos #ff2e63 en el juego: barreras de energía y bloques con franjas | Hecho (v15) |
 | A4 | Androide en el juego, zona de choque idéntica; corregir desfase al redimensionar en PC | Pendiente |
 | A5 | Cierre: fluidez, contraste día/noche, ícono con el androide | Pendiente |
