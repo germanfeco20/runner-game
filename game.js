@@ -1,4 +1,4 @@
-const VERSION = 'v15';
+const VERSION = 'v16';
 
 // Modo de depuración: ?debug=1 en la URL muestra los FPS y la zona de choque.
 const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
@@ -42,6 +42,9 @@ const MIN_WINDOW = 0.14;
 
 // Choque justo: la zona de choque del personaje es más pequeña que su dibujo.
 const HITBOX_INSET = 0.15; // lados recortados por cada borde
+// Posición fija del personaje, en lados desde el borde izquierdo (antes era el 20 % del ancho: al
+// cambiar el tamaño de la ventana en PC se desfasaba de los obstáculos). En celular vertical es igual.
+const PLAYER_X = 2;
 const RESTART_DELAY = 500; // ms en que se ignoran toques tras chocar
 
 const BEST_KEY = 'runner-game.best';
@@ -59,7 +62,13 @@ const BUILDING_DAY = '#4a5068';
 const BUILDING_NIGHT = '#151a3d';
 const NEON = ['#00f0ff', '#b026ff', '#ffd600'];
 const OBSTACLE = '#ff2e63'; // exclusivo de los obstáculos
-const WARNING = '#ff5a36'; // luces de aviso: solo en techos, lejos de la franja de juego
+const WARNING = '#ff5a36';
+// Androide: chaqueta y pantalón oscuros (humano), metal claro con luz cian (robot).
+const BODY = {
+  jacket: '#1d2233', jacketFar: '#141826', pants: '#262b3d',
+  skin: '#c89a7a', metal: '#aab4c8', metalFar: '#7c869c', metalDark: '#5b6478',
+  joint: '#39414f', cyan: '#00f0ff', boot: '#0f1119',
+}; // luces de aviso: solo en techos, lejos de la franja de juego
 // Ciclo día/noche: fracción del ciclo (0 día, ~0,4 atardecer, ~0,66 noche, ~0,92 amanecer).
 const CYCLE_SECONDS = 120;
 const CYCLE_START = 0.4; // cada partida empieza al atardecer
@@ -123,7 +132,8 @@ function saveBest(value) {
 
 const score = () => Math.floor(distance);
 
-const fx = { squash: 0, shake: 0, flash: 0, pop: 0, particles: [], steam: [] };
+const fx = { squash: 0, shake: 0, flash: 0, pop: 0, steam: [], smoke: [], sparks: [], crash: 0 };
+let runPhase = 0; // 0..1 por ciclo de carrera (dos pasos)
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const difficulty = () => Math.min(Math.max((elapsed - RAMP_START) / (RAMP_END - RAMP_START), 0), 1);
@@ -141,7 +151,9 @@ function start() {
   newRecord = false;
   cycle = CYCLE_START;
   fx.squash = 0;
-  fx.particles = [];
+  fx.smoke = [];
+  fx.sparks = [];
+  fx.crash = 0;
   state = 'playing';
 }
 
@@ -154,7 +166,7 @@ function onTap() {
 }
 
 function hitsObstacle() {
-  const left = (width * 0.2) / size + HITBOX_INSET;
+  const left = PLAYER_X + HITBOX_INSET;
   const right = left + 1 - 2 * HITBOX_INSET;
   const bottom = player.y + HITBOX_INSET;
   return obstacles.some((o) => o.x < right && o.x + o.w > left && bottom < o.h);
@@ -173,6 +185,7 @@ function resize() {
   if (isLandscape()) pause();
   skyCache.key = '';
   glowMagenta = null;
+  glowCyan = null;
   puffSprite = null;
   buildCity();
   draw();
@@ -183,7 +196,8 @@ function jump() {
   player.vy = JUMP_SPEED;
   player.y = 0.0001; // despega en este mismo toque, sin esperar al siguiente cuadro
   fx.squash = -0.25; // se estira al despegar
-  draw();
+  // Sin draw() aquí: la pantalla solo cambia en el siguiente refresco, y un cuadro extra por
+  // toque cuesta caro con la ciudad. El salto ya empezó en este mismo toque (y > 0).
 }
 
 function updatePlayer(dt) {
@@ -197,29 +211,18 @@ function updatePlayer(dt) {
   }
 }
 
-// Se aplasta al aterrizar y levanta polvo.
-function land() {
-  fx.squash = 0.3;
-  const x = (width * 0.2) / size + 0.5;
-  for (let i = 0; i < 8; i++) {
-    fx.particles.push({ x: x + random(-0.45, 0.45), y: 0.05, vx: random(-2.5, 1), vy: random(1, 3), life: 1, s: random(0.08, 0.16) });
-  }
-  if (fx.particles.length > MAX_PARTICLES) fx.particles.splice(0, fx.particles.length - MAX_PARTICLES);
-}
-
 function updateFx(dt) {
   fx.squash *= Math.exp(-12 * dt);
   fx.shake = Math.max(0, fx.shake - dt);
   fx.flash = Math.max(0, fx.flash - dt);
   fx.pop = Math.max(0, fx.pop - dt * 4);
   const ground = state === 'playing' ? speed() : 0;
-  for (const p of fx.particles) {
-    p.x += (p.vx - ground) * dt;
-    p.vy -= 12 * dt;
-    p.y = Math.max(0, p.y + p.vy * dt);
-    p.life -= dt / 0.45;
-  }
-  fx.particles = fx.particles.filter((p) => p.life > 0);
+  fx.crash = Math.max(0, fx.crash - dt / 1.2);
+  for (const p of fx.smoke) { p.x += (p.vx - ground) * dt; p.y += p.vy * dt; p.vy *= Math.exp(-3 * dt); p.r += dt * 0.6; p.life -= dt / 0.55; }
+  fx.smoke = fx.smoke.filter((p) => p.life > 0);
+  if (fx.smoke.length > MAX_PARTICLES) fx.smoke.splice(0, fx.smoke.length - MAX_PARTICLES);
+  for (const p of fx.sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 14 * dt; p.life -= dt / 0.6; }
+  fx.sparks = fx.sparks.filter((p) => p.life > 0 && p.y > -0.2);
 }
 
 function updateObstacles(dt) {
@@ -271,6 +274,7 @@ function spawnPattern(d) {
 
 function update(dt) {
   updatePlayer(dt);
+  if (player.y === 0) runPhase = (runPhase + dt / cycleTime(speed())) % 1; // cadencia según la velocidad
   updateObstacles(dt);
   const hundreds = Math.floor(score() / 100);
   distance += speed() * dt;
@@ -283,6 +287,7 @@ function update(dt) {
 function gameOver() {
   state = 'over';
   overAt = performance.now();
+  crash();
   fx.shake = SHAKE_TIME;
   fx.flash = FLASH_TIME;
   newRecord = score() > best;
@@ -986,16 +991,220 @@ function drawBlock(o) {
 }
 
 
-function drawPlayer() {
-  // Estira en el aire según la velocidad y aplica el golpe de despegue o aterrizaje.
-  const air = player.y > 0 ? -0.12 * Math.min(Math.abs(player.vy) / JUMP_SPEED, 1) : 0;
-  const k = Math.min(Math.max(fx.squash + air, -0.3), 0.35);
-  const w = size * (1 + k);
-  const h = size * (1 - k);
-  const cx = Math.round(width * 0.2) + size / 2;
-  const bottom = groundY - player.y * size;
-  ctx.fillStyle = '#e8452c';
-  ctx.fillRect(cx - w / 2, bottom - h, w, h);
+// ---------- Androide ----------
+function limb(x0, y0, a1, l1, a2, l2) {
+  const x1 = x0 + Math.sin(a1) * l1;
+  const y1 = y0 + Math.cos(a1) * l1;
+  return [x0, y0, x1, y1, x1 + Math.sin(a2) * l2, y1 + Math.cos(a2) * l2];
+}
+function legIK(hx, hy, fx, fy, l) {
+  const dx = fx - hx, dy = fy - hy;
+  const d = Math.min(Math.hypot(dx, dy), 2 * l - 1e-4);
+  const theta = Math.atan2(dx, dy);
+  const alpha = Math.acos(d / (2 * l));
+  const kx = hx + Math.sin(theta + alpha) * l;
+  const ky = hy + Math.cos(theta + alpha) * l;
+  return [hx, hy, kx, ky, hx + Math.sin(theta) * d, hy + Math.cos(theta) * d];
+}
+
+const LEG = 0.34;
+const HIP_Y = -0.58;
+const MAX_STRIDE = 0.7;
+const cycleTime = (v) => 0.42 * Math.sqrt(8 / v);
+
+// Pie en fase q: apoyado al principio (va hacia atrás a la velocidad del suelo, sin patinar), luego en el aire.
+function footAt(q, v) {
+  const T = cycleTime(v);
+  const duty = Math.min(0.3, MAX_STRIDE / (v * T));
+  const D = v * duty * T;
+  if (q < duty) return { x: D / 2 - v * q * T, y: 0, stance: q / duty };
+  const s = (q - duty) / (1 - duty);
+  const ease = 0.5 - 0.5 * Math.cos(Math.PI * s);
+  return { x: -D / 2 + D * ease - 0.12 * Math.sin(Math.PI * s) * (1 - s), y: -0.36 * Math.sin(Math.PI * s), stance: -1 };
+}
+
+function pose() {
+  const v = speed();
+  if (fx.crash > 0 || state === 'over') { // choque: cae hacia atrás y se queda así hasta reiniciar
+    const hip = [0, HIP_Y];
+    return {
+      hip, lean: -0.35 * Math.min(1, (1 - fx.crash) * 6),
+      near: limb(hip[0] + 0.02, hip[1], 0.5, LEG, -0.1, LEG), far: limb(hip[0] - 0.02, hip[1], -0.2, LEG, -0.6, LEG),
+      arms: { near: [-2.2, -2.6], far: [-1.8, -2.2] },
+    };
+  }
+  if (player.y > 0) {
+    const up = clamp01(player.vy / JUMP_SPEED);
+    const hip = [0, HIP_Y];
+    return {
+      hip, lean: 0.1,
+      near: limb(hip[0] + 0.02, hip[1], 1.1 - up * 0.3, LEG, -0.2, LEG), far: limb(hip[0] - 0.02, hip[1], -0.3, LEG, -1.2 + up * 0.4, LEG),
+      arms: { near: [-0.9 - up * 0.6, -0.4], far: [0.8, 1.6] },
+    };
+  }
+  const fA = footAt(runPhase % 1, v);
+  const fB = footAt((runPhase + 0.5) % 1, v);
+  const dip = Math.max(fA.stance >= 0 ? Math.sin(Math.PI * fA.stance) : 0, fB.stance >= 0 ? Math.sin(Math.PI * fB.stance) : 0);
+  const hip = [0, HIP_Y + 0.05 * dip];
+  const swing = Math.cos(2 * Math.PI * runPhase);
+  return {
+    hip, lean: 0.12,
+    near: legIK(hip[0] + 0.02, hip[1], fA.x, fA.y, LEG),
+    far: legIK(hip[0] - 0.02, hip[1], fB.x, fB.y, LEG),
+    arms: { near: [-0.8 * swing, -0.8 * swing + 1.5], far: [0.8 * swing, 0.8 * swing + 1.5] },
+  };
+}
+
+let glowCyan = null;
+function drawGlow(x, y, r, strength) {
+  if (!glowCyan) {
+    const [c, g] = offscreen(64, 64);
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(0, 240, 255, 0.9)');
+    grad.addColorStop(0.35, 'rgba(0, 240, 255, 0.35)');
+    grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    glowCyan = c;
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = strength;
+  ctx.drawImage(glowCyan, x - r, y - r, r * 2, r * 2);
+  ctx.restore();
+}
+
+function drawAndroid(c) {
+  const P = pose();
+  const s = size;
+  const night = darkness(c);
+  const baseX = PLAYER_X * s + s / 2;
+  const baseY = groundY - player.y * s;
+  const airStretch = player.y > 0 ? -0.12 * Math.min(Math.abs(player.vy) / JUMP_SPEED, 1) : 0;
+  const k = Math.min(Math.max(fx.squash + airStretch, -0.3), 0.35);
+
+  ctx.save();
+  ctx.translate(baseX, baseY);
+  ctx.scale(1 + k, 1 - k);
+  ctx.scale(s, s);
+  ctx.rotate(fx.crash > 0 ? P.lean : P.lean * 0.8);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const hip = P.hip;
+  const shoulder = [hip[0] + 0.06, hip[1] - 0.4];
+  const armL = 0.25;
+  const L = {
+    farLeg: P.far, nearLeg: P.near,
+    farArm: limb(shoulder[0] - 0.03, shoulder[1], P.arms.far[0], armL, P.arms.far[1], armL),
+    nearArm: limb(shoulder[0] + 0.03, shoulder[1], P.arms.near[0], armL, P.arms.near[1], armL),
+  };
+  const seg = (pts, w, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); ctx.lineTo(pts[2], pts[3]); ctx.lineTo(pts[4], pts[5]); ctx.stroke();
+  };
+  const torsoPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(shoulder[0] - 0.19, shoulder[1] - 0.02);
+    ctx.lineTo(shoulder[0] + 0.17, shoulder[1] - 0.04);
+    ctx.lineTo(hip[0] + 0.15, hip[1] + 0.02);
+    ctx.lineTo(hip[0] - 0.16, hip[1] + 0.04);
+    ctx.closePath();
+  };
+  const headPath = () => { ctx.beginPath(); ctx.ellipse(shoulder[0] + 0.06, shoulder[1] - 0.2, 0.15, 0.16, 0, 0, Math.PI * 2); };
+  const neck = (w, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(shoulder[0] + 0.02, shoulder[1] + 0.02); ctx.lineTo(shoulder[0] + 0.05, shoulder[1] - 0.1); ctx.stroke();
+  };
+  const outline = (o, color) => {
+    seg(L.farLeg, 0.15 + o, color); seg(L.farArm, 0.11 + o, color); neck(0.09 + o, color);
+    ctx.strokeStyle = color; ctx.lineWidth = o; torsoPath(); ctx.stroke(); headPath(); ctx.stroke();
+    seg(L.nearLeg, 0.16 + o, color); seg(L.nearArm, 0.12 + o, color);
+  };
+  outline(0.1, rgba('#1a1f33', 1 - night));
+  outline(0.055, rgba('#00f0ff', 0.9 + 0.05 * night));
+
+  // Piernas sin pie aparte: termina en la punta redondeada del trazo.
+  seg(L.farLeg, 0.15, BODY.metalFar);
+  seg(L.farArm, 0.11, BODY.jacketFar);
+  ctx.fillStyle = BODY.jacket; torsoPath(); ctx.fill();
+  ctx.strokeStyle = '#2c3348'; ctx.lineWidth = 0.025;
+  ctx.beginPath(); ctx.moveTo(shoulder[0] + 0.1, shoulder[1]); ctx.lineTo(hip[0] + 0.09, hip[1]); ctx.stroke();
+  neck(0.09, BODY.skin);
+  ctx.fillStyle = BODY.skin; headPath(); ctx.fill();
+  ctx.fillStyle = BODY.boot;
+  ctx.beginPath(); ctx.ellipse(shoulder[0] + 0.02, shoulder[1] - 0.25, 0.14, 0.11, -0.3, Math.PI * 0.9, Math.PI * 2.05); ctx.fill();
+  seg(L.nearLeg, 0.16, BODY.pants);
+
+  const joints = (pts, r) => {
+    ctx.fillStyle = BODY.joint;
+    for (const i of [0, 2]) { ctx.beginPath(); ctx.arc(pts[i], pts[i + 1], r, 0, Math.PI * 2); ctx.fill(); }
+  };
+  const lightLine = (pts, a) => { ctx.globalAlpha = a; seg(pts, 0.03, BODY.cyan); ctx.globalAlpha = 1; };
+  const glow = 0.35 + 0.55 * night;
+  joints(L.farLeg, 0.05);
+  lightLine(L.farLeg, 0.6 + 0.4 * glow);
+  seg(L.nearArm, 0.12, BODY.metal);
+  joints(L.nearArm, 0.045);
+  lightLine(L.nearArm, 0.6 + 0.4 * glow);
+  ctx.fillStyle = BODY.metalDark;
+  ctx.beginPath(); ctx.arc(shoulder[0] + 0.03, shoulder[1] + 0.02, 0.07, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = BODY.cyan;
+  ctx.beginPath(); ctx.arc(shoulder[0] + 0.03, shoulder[1] + 0.02, 0.025, 0, Math.PI * 2); ctx.fill();
+
+  const visorOn = fx.crash > 0 ? fxRandom() > 0.4 : true;
+  const vx = shoulder[0] + 0.11;
+  const vy = shoulder[1] - 0.22;
+  ctx.fillStyle = visorOn ? BODY.cyan : '#1b4a50';
+  ctx.beginPath();
+  ctx.moveTo(vx - 0.06, vy - 0.035); ctx.lineTo(vx + 0.11, vy - 0.02); ctx.lineTo(vx + 0.11, vy + 0.03); ctx.lineTo(vx - 0.06, vy + 0.035);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  if (visorOn) drawGlow(baseX + (vx + 0.03) * s * (1 + k), baseY + vy * s * (1 - k), s * 0.2, glow * 0.7);
+}
+
+// ---------- Humo al aterrizar y chispas al chocar ----------
+function land() {
+  fx.squash = 0.3;
+  const x = PLAYER_X + 0.5;
+  for (let i = 0; i < 7; i++) {
+    fx.smoke.push({ x: x + (fxRandom() - 0.5) * 0.8, y: 0.08, r: 0.1 + fxRandom() * 0.08, vx: (fxRandom() - 0.5) * 1.6, vy: 0.3 + fxRandom() * 0.6, life: 1 });
+  }
+}
+
+function drawSmoke(c) {
+  // De día gris azulado oscuro (contrasta con el cielo claro); de noche gris con tono cian.
+  const d = darkness(c);
+  const col = mix('#5e6b80', '#7fb6c4', d);
+  for (const p of fx.smoke) {
+    ctx.fillStyle = rgba(col, (0.55 - 0.1 * d) * p.life);
+    ctx.beginPath();
+    ctx.arc(p.x * size, groundY - p.y * size, p.r * size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function crash() {
+  fx.crash = 1;
+  const x = PLAYER_X + 0.8;
+  const y = player.y + 0.7;
+  for (let i = 0; i < 22; i++) {
+    const a = -Math.PI / 2 + (fxRandom() - 0.5) * 2.6;
+    const v = 3 + fxRandom() * 6;
+    fx.sparks.push({ x, y, vx: Math.cos(a) * v - 1, vy: -Math.sin(a) * v, life: 1, c: ['#ffd600', '#ffffff', '#00f0ff'][i % 3] });
+  }
+}
+
+function drawSparks() {
+  ctx.lineCap = 'round';
+  for (const p of fx.sparks) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.strokeStyle = p.c;
+    ctx.lineWidth = Math.max(1.5, size * 0.05);
+    const x = p.x * size, y = groundY - p.y * size;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - p.vx * size * 0.03, y + p.vy * size * 0.03); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawVersion() {
@@ -1007,8 +1216,7 @@ function drawVersion() {
 }
 
 function draw() {
-  // En horizontal no se juega: fondo liso y solo el mensaje. El mundo no se dibuja porque la
-  // posición del personaje depende del ancho de pantalla y no coincidiría con la de los obstáculos.
+  // En horizontal no se juega: fondo liso y solo el mensaje.
   if (isLandscape()) {
     ctx.fillStyle = '#4a6a8a';
     ctx.fillRect(0, 0, width, height);
@@ -1034,17 +1242,14 @@ function draw() {
   drawFog(d);
   drawWalkway(cycle);
 
-  // Polvo: detrás de los obstáculos para no taparlos.
-  for (const p of fx.particles) {
-    ctx.fillStyle = `rgba(222, 232, 190, ${0.8 * p.life})`;
-    const s = p.s * size;
-    ctx.fillRect(p.x * size - s / 2, groundY - p.y * size - s, s, s);
-  }
+  // Humo: detrás de los obstáculos para no taparlos.
+  drawSmoke(cycle);
 
   // Obstáculos (#ff2e63)
   for (const o of obstacles) (o.type === 'barrier' ? drawBarrier(o, d) : drawBlock(o));
 
-  drawPlayer();
+  drawAndroid(cycle);
+  drawSparks();
   ctx.restore();
 
   if (fx.flash > 0) {
@@ -1073,7 +1278,7 @@ function draw() {
 function drawDebug() {
   const n = frameTimes.length;
   const fps = n > 1 ? Math.round((1000 * (n - 1)) / (frameTimes[n - 1] - frameTimes[0])) : 0;
-  const left = ((width * 0.2) / size + HITBOX_INSET) * size;
+  const left = (PLAYER_X + HITBOX_INSET) * size;
   const bottom = groundY - (player.y + HITBOX_INSET) * size;
   const top = groundY - (player.y + 1) * size;
   ctx.save();

@@ -61,5 +61,5 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 | A1.3 | arte.html, parte "arte 3": ciudad con mucho más neón y tecnología, densidad Denso / Muy denso, pierna sin pie, humo oscuro de día | Hecho (aprobado: Muy denso) |
 | A2 | Ciudad (Muy denso), pasarela y ciclo día/noche en el juego, empezando al atardecer; modo ?debug=1 con FPS y zona de choque | Hecho (v14) |
 | A3 | Obstáculos #ff2e63 en el juego: barreras de energía y bloques con franjas | Hecho (v15) |
-| A4 | Androide en el juego, zona de choque idéntica; corregir desfase al redimensionar en PC | Pendiente |
+| A4 | Androide en el juego (carrera, salto, aterrizaje con humo, choque con chispas), zona de choque idéntica; posición fija del personaje (arregla el desfase al redimensionar en PC) | Hecho (v16) |
 | A5 | Cierre: fluidez, contraste día/noche, ícono con el androide | Pendiente |
