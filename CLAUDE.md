@@ -5,7 +5,7 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 
 ## Stack (no cambiar sin preguntarme)
 - HTML5 Canvas + JavaScript puro. Sin frameworks, sin npm, sin build.
-- Archivos: index.html, style.css, game.js.
+- Archivos: index.html, style.css, game.js. App instalable: manifest.webmanifest e icons/. Página de prueba de arte: arte.html (no forma parte del juego).
 - Se publica con GitHub Pages desde la rama main (raíz).
 
 ## Reglas de diseño
@@ -24,6 +24,8 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 - CICLO DÍA/NOCHE: día → atardecer → noche → amanecer, en transición gradual (ciclo completo de ~120 s). De día: cielo con smog naranja/gris (#e8a06a a #c9b8a8), edificios gris azulado (#4a5068) y neones casi apagados. De noche: fondo azul muy oscuro (#0a0e27), edificios #151a3d, neones encendidos en cian #00f0ff, violeta #b026ff y amarillo #ffd600. Al anochecer, los letreros se encienden con un parpadeo.
 - LEGIBILIDAD: el fondo siempre tiene menos contraste que el personaje y los obstáculos, de día y de noche.
 - TÉCNICA: todo dibujado con código en canvas, sin imágenes externas. Las capas fijas se dibujan una vez y se reutilizan. Brillo con moderación. Fluidez en S24 Ultra e iPhone 15.
+- Cada partida empieza al atardecer. El ciclo día/noche reemplaza el cielo que cambiaba con la dificultad (paso 6b).
+- El androide lleva un contorno de luz cian para leerse de noche; de día se lee por su silueta oscura.
 
 ## Cómo trabajamos
 - Un objetivo por cambio. Cambios pequeños.
@@ -49,3 +51,13 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 | 6b | Animaciones: estiramiento, polvo, temblor y destello, fondo con capas, cielo según dificultad, puntaje que salta | Hecho (v10) |
 | 7 | Pausa al cambiar de app, rotación y cambio de tamaño | Hecho (v12) |
 | 8 | Instalable como app (PWA) en vertical; en horizontal, fondo liso con "Gira tu celular" | Hecho (v13) |
+
+### Fase de arte (cyberpunk)
+| # | Paso | Estado |
+|---|---|---|
+| A1.1 | arte.html, parte "arte 1": androide (carrera, salto, aterrizaje, choque) sobre la pasarela, fondo liso día/noche, zona de choque real, fps | En revisión |
+| A1.2 | arte.html, parte "arte 2": ciudad en 3 capas, ciclo día/noche con parpadeo, 2 tipos de obstáculo | Pendiente (espera aprobación de A1.1) |
+| A2 | Ciudad, pasarela y ciclo día/noche en el juego | Pendiente |
+| A3 | Obstáculos #ff2e63 en el juego | Pendiente |
+| A4 | Androide en el juego, zona de choque idéntica; corregir desfase al redimensionar en PC | Pendiente |
+| A5 | Cierre: fluidez, contraste día/noche, ícono con el androide | Pendiente |
