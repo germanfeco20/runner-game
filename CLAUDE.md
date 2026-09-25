@@ -21,7 +21,7 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 - REGLA DE JUEGO: la zona de choque del personaje no cambia de tamaño. El dibujo puede ser un poco más grande, pero la jugabilidad no cambia.
 - CIUDAD: 3 capas con movimiento a distinta velocidad: siluetas de rascacielos al fondo; edificios medios con ventanas y letreros de neón (palabras cortas en español o formas abstractas); primer plano con postes y cables. Suelo: calle o pasarela metálica con líneas de luz.
 - OBSTÁCULOS: barreras de energía o bloques con franjas de peligro, en magenta/rojo #ff2e63. Ese color es EXCLUSIVO de los obstáculos y no se usa en el fondo.
-- CICLO DÍA/NOCHE: día → atardecer → noche → amanecer, en transición gradual (ciclo completo de ~120 s). De día: cielo con smog naranja/gris (#e8a06a a #c9b8a8), edificios gris azulado (#4a5068) y neones casi apagados. De noche: fondo azul muy oscuro (#0a0e27), edificios #151a3d, neones encendidos en cian #00f0ff, violeta #b026ff y amarillo #ffd600. Al anochecer, los letreros se encienden con un parpadeo.
+- CICLO DÍA/NOCHE: día → atardecer → noche → amanecer, en transición gradual (ciclo completo de ~120 s). De día: paleta pendiente de elegir entre las variantes A, B y C de arte.html (el smog naranja quedó descartado); edificios gris azulado (#4a5068) con bruma y neones casi apagados. De noche: fondo azul muy oscuro (#0a0e27), edificios #151a3d, neones encendidos en cian #00f0ff, violeta #b026ff y amarillo #ffd600. Al anochecer, los letreros se encienden con un parpadeo.
 - LEGIBILIDAD: el fondo siempre tiene menos contraste que el personaje y los obstáculos, de día y de noche.
 - TÉCNICA: todo dibujado con código en canvas, sin imágenes externas. Las capas fijas se dibujan una vez y se reutilizan. Brillo con moderación. Fluidez en S24 Ultra e iPhone 15.
 - Cada partida empieza al atardecer. El ciclo día/noche reemplaza el cielo que cambiaba con la dificultad (paso 6b).
@@ -55,8 +55,8 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 ### Fase de arte (cyberpunk)
 | # | Paso | Estado |
 |---|---|---|
-| A1.1 | arte.html, parte "arte 1": androide (carrera, salto, aterrizaje, choque) sobre la pasarela, fondo liso día/noche, zona de choque real, fps | En revisión |
-| A1.2 | arte.html, parte "arte 2": ciudad en 3 capas, ciclo día/noche con parpadeo, 2 tipos de obstáculo | Pendiente (espera aprobación de A1.1) |
+| A1.1 | arte.html, parte "arte 1": androide (carrera, salto, aterrizaje, choque) sobre la pasarela, fondo liso día/noche, zona de choque real, fps | Hecho (aprobado; ajustes de cadencia y humo en arte 2) |
+| A1.2 | arte.html, parte "arte 2": ciudad en 3 capas, ciclo día/noche con parpadeo, 2 tipos de obstáculo, 3 variantes de día | En revisión |
 | A2 | Ciudad, pasarela y ciclo día/noche en el juego | Pendiente |
 | A3 | Obstáculos #ff2e63 en el juego | Pendiente |
 | A4 | Androide en el juego, zona de choque idéntica; corregir desfase al redimensionar en PC | Pendiente |

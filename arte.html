@@ -14,33 +14,51 @@
     }
     canvas { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
     #panel {
-      position: fixed; top: 8px; left: 8px; right: 8px; z-index: 1;
-      display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+      position: fixed; top: 6px; left: 6px; right: 6px; z-index: 1;
+      display: flex; flex-direction: column; gap: 5px; align-items: center;
     }
+    #panel .row { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
     #panel button {
-      font: 600 14px sans-serif; color: #e8ecff; background: rgba(20, 24, 50, 0.75);
-      border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 8px 10px;
+      font: 600 12px sans-serif; color: #e8ecff; background: rgba(20, 24, 50, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 7px; padding: 6px 8px;
     }
     #panel button.on { background: #00a8b3; border-color: #00f0ff; color: #fff; }
+    #panel.hidden .row:not(:first-child) { display: none; }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
   <div id="panel">
-    <button data-mode="day" class="on">Día</button>
-    <button data-mode="night">Noche</button>
-    <button id="jump">Saltar</button>
-    <button id="crash">Chocar</button>
-    <button id="hitbox">Zona de choque</button>
-    <button id="slow">Lento</button>
+    <div class="row">
+      <button id="togglePanel">Panel</button>
+      <button data-day="A" class="on">Día A</button>
+      <button data-day="B">Día B</button>
+      <button data-day="C">Día C</button>
+    </div>
+    <div class="row">
+      <button data-time="day">Día</button>
+      <button data-time="sunset" class="on">Atardecer</button>
+      <button data-time="night">Noche</button>
+      <button data-time="dawn">Amanecer</button>
+      <button id="cycle">Ciclo 120 s</button>
+      <button id="fast">Ciclo ×10</button>
+    </div>
+    <div class="row">
+      <button id="jump">Saltar</button>
+      <button id="crash">Chocar</button>
+      <button id="auto" class="on">Auto-saltar</button>
+      <button id="speed">Vel. 8</button>
+      <button id="slow">Lento</button>
+      <button id="hitbox">Zona de choque</button>
+    </div>
   </div>
 <script>
-const LABEL = 'arte 1';
+const LABEL = 'arte 2';
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 
-// Mismas medidas y física que el juego (game.js), para que lo que se ve aquí sea lo que se verá allá.
+// ---------- Mismas medidas y física que el juego (game.js) ----------
 const JUMP_HEIGHT = 2.2;
 const RISE_TIME = 0.25;
 const FALL_FACTOR = 1.8;
@@ -48,182 +66,540 @@ const GRAVITY_UP = (2 * JUMP_HEIGHT) / (RISE_TIME * RISE_TIME);
 const GRAVITY_DOWN = GRAVITY_UP * FALL_FACTOR;
 const JUMP_SPEED = (2 * JUMP_HEIGHT) / RISE_TIME;
 const HITBOX_INSET = 0.15;
-const SPEED = 8; // lados por segundo: velocidad inicial del juego
+const SPEEDS = [8, 10.5, 13]; // inicio, mitad y tope del juego (lados por segundo)
 
-// Paleta (Dirección de arte en CLAUDE.md). #ff2e63 queda reservado para obstáculos: no se usa aquí.
-const THEMES = {
-  day: {
-    bg: '#d8ad89', deck: '#5a6278', deckEdge: '#8a93aa', frame: '#3a4058', beam: '#2e3348',
-    light: 'rgba(0, 240, 255, 0.35)', rim: 'rgba(0, 240, 255, 0.9)', rimOuter: '#1a1f33', glow: 0.35,
-  },
-  night: {
-    bg: '#0a0e27', deck: '#1f2548', deckEdge: '#3a4476', frame: '#151a3d', beam: '#10142f',
-    light: 'rgba(0, 240, 255, 1)', rim: 'rgba(0, 240, 255, 0.95)', rimOuter: null, glow: 0.9,
-  },
+// ---------- Paleta (Dirección de arte en CLAUDE.md) ----------
+// #ff2e63 es exclusivo de los obstáculos: no aparece en cielo, ciudad, letreros ni personaje.
+const OBSTACLE = '#ff2e63';
+const DAY_SKIES = {
+  A: ['#8a94a6', '#c3cad6'], // gris acero nublado
+  B: ['#9fc4d8', '#d6e4ec'], // azul frío pálido
+  C: ['#7f9290', '#c4cfcc'], // propuesta: bruma gris verdosa (complementaria del magenta)
 };
+const SUNSET = ['#3d3a78', '#d9924e'];
+const NIGHT = ['#0a0e27', '#141a44'];
+const DAWN = ['#6f7fb0', '#d6c7b8'];
+const BUILDING_DAY = '#4a5068';
+const BUILDING_NIGHT = '#151a3d';
+const NEON = ['#00f0ff', '#b026ff', '#ffd600'];
+// Ciclo: fracción del ciclo → [cielo arriba, cielo horizonte]. Día 0–0,3; atardecer ~0,4; noche 0,5–0,82; amanecer ~0,92.
+const CYCLE_SECONDS = 120;
+const TIMES = { day: 0.15, sunset: 0.4, night: 0.66, dawn: 0.92 };
+
 // Androide: chaqueta y pantalón oscuros (humano), metal claro con luz cian (robot).
 const BODY = {
-  jacket: '#1d2233', jacketFar: '#141826', pants: '#262b3d', pantsFar: '#1a1e2c',
+  jacket: '#1d2233', jacketFar: '#141826', pants: '#262b3d',
   skin: '#c89a7a', metal: '#aab4c8', metalFar: '#7c869c', metalDark: '#5b6478',
   joint: '#39414f', cyan: '#00f0ff', boot: '#0f1119',
 };
 
-let mode = 'day';
+// ---------- Estado ----------
+let dayVariant = 'A';
+let cycle = TIMES.sunset; // cada partida empieza al atardecer
+let cycleRate = 0; // 0 = quieto; 1/120 = tiempo real
+let speedIndex = 0;
 let showHitbox = false;
 let slow = false;
+let autoJump = true;
 
 let width = 0;
 let height = 0;
 let groundY = 0;
 let size = 0;
+let dpr = 1;
 
 const player = { y: 0, vy: 0 };
-const fx = { squash: 0, shake: 0, sparks: [], crash: 0 };
-let runPhase = 0;
-let scroll = 0;
+const fx = { squash: 0, shake: 0, sparks: [], smoke: [], crash: 0 };
+let runPhase = 0; // 0..1 por ciclo de carrera (dos pasos)
+let scroll = 0; // lados recorridos
+let obstacles = [];
+let spawnTimer = 1;
+let patternIndex = 0;
 
-function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  width = canvas.clientWidth;
-  height = canvas.clientHeight;
-  canvas.width = Math.round(width * dpr);
-  canvas.height = Math.round(height * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  groundY = Math.round(height * 0.75);
-  size = Math.round(Math.min(width, height * 0.6) * 0.1);
-  glowSprite = null;
+const speed = () => SPEEDS[speedIndex];
+const playerX = () => (width * 0.2) / size; // igual que el juego
+
+// ---------- Utilidades ----------
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = (t) => Math.min(1, Math.max(0, t));
+const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+function hex(c) { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function mix(a, b, t) {
+  const pa = hex(a), pb = hex(b);
+  const h = (i) => Math.round(lerp(pa[i], pb[i], t)).toString(16).padStart(2, '0');
+  return `#${h(0)}${h(1)}${h(2)}`;
+}
+function rgba(c, a) { const p = hex(c); return `rgba(${p[0]}, ${p[1]}, ${p[2]}, ${a})`; }
+function seeded(seed) { // mulberry32: la ciudad sale igual en cada carga
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function offscreen(w, h, opaque = false) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * dpr));
+  c.height = Math.max(1, Math.round(h * dpr));
+  const g = c.getContext('2d', { alpha: !opaque }); // opaco = copia más barata
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [c, g];
 }
 
-function jump() {
-  if (player.y > 0 || fx.crash > 0) return;
-  player.vy = JUMP_SPEED;
-  player.y = 0.0001;
-  fx.squash = -0.25;
-}
-
-function crash() {
-  if (fx.crash > 0) return;
-  fx.crash = 1;
-  fx.shake = 0.25;
-  const x = (width * 0.2) / size + 0.8;
-  const y = player.y + 0.7;
-  for (let i = 0; i < 22; i++) {
-    const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.6;
-    const v = 3 + Math.random() * 6;
-    fx.sparks.push({ x, y, vx: Math.cos(a) * v - 1, vy: -Math.sin(a) * v, life: 1, c: ['#ffd600', '#ffffff', '#00f0ff'][i % 3] });
-  }
-}
-
-function update(dt) {
-  const k = slow ? 0.25 : 1;
-  dt *= k;
-  const running = fx.crash <= 0;
-  if (running) {
-    scroll += SPEED * dt;
-    if (player.y === 0) runPhase += dt * SPEED * (Math.PI / 1.25); // una zancada cada 1,25 lados
-  }
-  if (player.y > 0) {
-    player.vy -= (player.vy > 0 ? GRAVITY_UP : GRAVITY_DOWN) * dt;
-    player.y += player.vy * dt;
-    if (player.y <= 0) {
-      player.y = 0;
-      player.vy = 0;
-      fx.squash = 0.3;
+// ---------- Ciclo día/noche ----------
+function skyColors(c) {
+  const day = DAY_SKIES[dayVariant];
+  const keys = [[0, day], [0.3, day], [0.4, SUNSET], [0.5, NIGHT], [0.82, NIGHT], [0.92, DAWN], [1, day]];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [c0, k0] = keys[i];
+    const [c1, k1] = keys[i + 1];
+    if (c >= c0 && c <= c1) {
+      const t = smooth(c0, c1, c);
+      return [mix(k0[0], k1[0], t), mix(k0[1], k1[1], t)];
     }
   }
-  fx.squash *= Math.exp(-12 * dt);
-  fx.shake = Math.max(0, fx.shake - dt);
-  fx.crash = Math.max(0, fx.crash - dt / 1.2);
-  for (const s of fx.sparks) {
-    s.x += s.vx * dt;
-    s.y += s.vy * dt;
-    s.vy -= 14 * dt;
-    s.life -= dt / 0.6;
+  return day;
+}
+// Oscuridad de la ciudad (0 día, 1 noche) y encendido de neones.
+const darkness = (c) => (c < 0.6 ? smooth(0.3, 0.5, c) : 1 - smooth(0.82, 0.94, c));
+const neonLevel = (c) => (c < 0.6 ? smooth(0.4, 0.5, c) : 1 - smooth(0.84, 0.9, c));
+
+// ---------- Capas de ciudad: se pintan una vez (día y noche) y se reutilizan ----------
+let layers = null;
+let skyCache = { key: '', canvas: null };
+
+function buildLayers() {
+  const tileW = Math.ceil(width * 1.5);
+  const H = groundY;
+  const skyDay = DAY_SKIES[dayVariant][1];
+  // Cada capa se pinta una vez en versión día y noche, recortada a la franja que ocupa
+  // (menos superficie que copiar por cuadro).
+  const make = (y0, draw) => {
+    y0 = Math.max(0, Math.floor(y0));
+    const [d, gd] = offscreen(tileW, H - y0);
+    const [n, gn] = offscreen(tileW, H - y0);
+    gd.translate(0, -y0);
+    gn.translate(0, -y0);
+    draw(gd, 'day');
+    draw(gn, 'night');
+    return { day: d, night: n, y0, h: H - y0, w: tileW, cache: { step: -1, canvas: null } };
+  };
+  // Dibuja algo en x y también en x - tileW, para que el mosaico empalme sin corte.
+  const wrap = (x, w, fn) => { fn(x); if (x + w > tileW) fn(x - tileW); };
+
+  // Capa lejana: siluetas de rascacielos (mezcladas con el cielo: poco contraste).
+  const far = make(H * 0.35 - size * 0.9, (g, m) => {
+    const rnd = seeded(7);
+    const dots = seeded(99); // aparte, para que día y noche tengan los mismos edificios
+    const color = m === 'day' ? mix(skyDay, BUILDING_DAY, 0.25) : '#10153a';
+    g.fillStyle = color;
+    for (let x = 0; x < tileW; ) {
+      const w = size * (1 + rnd() * 1.8);
+      const h = H * (0.3 + rnd() * 0.35);
+      wrap(x, w, (xx) => {
+        g.fillRect(xx, H - h, w, h);
+        if (rnd() < 0.4) g.fillRect(xx + w * 0.45, H - h - size * 0.8, Math.max(1.5, size * 0.06), size * 0.8);
+      });
+      if (m === 'night') {
+        g.fillStyle = 'rgba(0, 240, 255, 0.18)';
+        for (let i = 0; i < 6; i++) { const dx = dots() * w, dy = dots() * h; wrap(x, w, (xx) => g.fillRect(xx + dx, H - dy, 2, 2)); }
+        g.fillStyle = color;
+      }
+      x += w + size * rnd() * 0.3;
+    }
+  });
+
+  // Capa media: edificios con ventanas; los letreros se agregan aparte (se encienden).
+  const signs = [];
+  const mid = make(H * 0.54 - size * 0.5, (g, m) => {
+    const rnd = seeded(21);
+    const body = m === 'day' ? mix(skyDay, BUILDING_DAY, 0.45) : BUILDING_NIGHT; // bruma: menos contraste que el androide
+    const win = m === 'day' ? mix(body, '#2c3146', 0.35) : null;
+    let x = 0;
+    let k = 0;
+    while (x < tileW) {
+      const w = size * (2 + rnd() * 2.2);
+      const h = H * (0.22 + rnd() * 0.24);
+      const top = H - h;
+      wrap(x, w, (xx) => {
+        g.fillStyle = body;
+        g.fillRect(xx, top, w, h);
+        g.fillRect(xx + w * 0.2, top - size * 0.35, w * 0.25, size * 0.35); // cuarto de máquinas
+      });
+      // Ventanas: de día casi invisibles; de noche algunas encendidas.
+      const cols = Math.floor(w / (size * 0.45));
+      const rows = Math.floor(h / (size * 0.6));
+      for (let r = 0; r < rows; r++) {
+        for (let cIdx = 0; cIdx < cols; cIdx++) {
+          const on = rnd();
+          const wx = x + size * 0.18 + cIdx * size * 0.45;
+          const wy = top + size * 0.3 + r * size * 0.6;
+          if (m === 'day') g.fillStyle = win;
+          else if (on < 0.28) g.fillStyle = on < 0.08 ? 'rgba(0, 240, 255, 0.35)' : 'rgba(255, 214, 0, 0.32)';
+          else continue;
+          wrap(wx, size * 0.2, (xx) => g.fillRect(xx, wy, size * 0.2, size * 0.28));
+        }
+      }
+      const hasSign = rnd() < 1; // un letrero por edificio (se descartan los que se enciman)
+      if (m === 'day' && hasSign) { signs.push({ x: x + w * 0.5, y: top + h * (k % 2 ? 0.55 : 0.25), k }); k++; }
+      x += w + size * (0.3 + rnd() * 0.8);
+    }
+  });
+
+  // Primer plano (detrás de la pasarela): postes y cables.
+  const near = make(H - size * 4.4, (g, m) => {
+    const color = m === 'day' ? mix(skyDay, '#2a2f42', 0.55) : '#0c1030';
+    const spacing = size * 5;
+    const postH = size * 4.2;
+    g.strokeStyle = color;
+    g.fillStyle = color;
+    for (let x = size; x < tileW + spacing; x += spacing) {
+      wrap(x, size * 0.2, (xx) => {
+        g.fillRect(xx, H - postH, Math.max(2, size * 0.12), postH);
+        g.fillRect(xx - size * 0.35, H - postH + size * 0.25, size * 0.82, Math.max(2, size * 0.06));
+      });
+    }
+    g.lineWidth = Math.max(1, size * 0.03);
+    for (let x = size; x < tileW; x += spacing) {
+      for (const dy of [0.25, 0.5]) {
+        g.beginPath();
+        const y = H - postH + size * dy;
+        g.moveTo(x, y);
+        g.quadraticCurveTo(x + spacing / 2, y + size * 0.9, x + spacing, y);
+        g.stroke();
+      }
+    }
+    if (m === 'night') { // luz cian en cada poste
+      g.fillStyle = 'rgba(0, 240, 255, 0.55)';
+      for (let x = size; x < tileW + spacing; x += spacing) wrap(x, 4, (xx) => g.fillRect(xx - size * 0.3, H - postH + size * 0.33, size * 0.25, Math.max(2, size * 0.05)));
+    }
+  });
+
+  // Letreros de neón: sprites "apagado" y "encendido" (el brillo se pinta aquí una sola vez).
+  const WORDS = ['BAR', 'HOTEL', '24H', 'CAFÉ', 'ABIERTO', 'RAMEN', '◆', '▲', '●'];
+  const signSprites = signs.map((s, i) => {
+    const text = WORDS[i % WORDS.length];
+    const color = NEON[i % NEON.length];
+    const fontPx = size * (text.length > 3 ? 0.42 : 0.55);
+    const w = fontPx * text.length * 0.75 + size * 0.8;
+    const h = fontPx + size * 0.8;
+    const draw = (g, on) => {
+      g.font = `700 ${fontPx}px sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.lineWidth = Math.max(1.5, size * 0.05);
+      g.fillStyle = on ? 'rgba(10, 12, 30, 0.55)' : 'rgba(20, 22, 35, 0.45)';
+      g.fillRect(size * 0.2, size * 0.2, w - size * 0.4, h - size * 0.4);
+      if (on) { g.shadowColor = color; g.shadowBlur = size * 0.35; }
+      g.strokeStyle = on ? color : mix(color, '#3a3f55', 0.75);
+      g.strokeText(text, w / 2, h / 2);
+      if (on) { g.shadowBlur = 0; g.fillStyle = mix(color, '#ffffff', 0.55); g.fillText(text, w / 2, h / 2); }
+    };
+    const [off, go] = offscreen(w, h);
+    const [on, gn] = offscreen(w, h);
+    draw(go, false);
+    draw(gn, true);
+    return { x: s.x - w / 2, y: s.y - h / 2, w, h, off, on, threshold: 0.42 + (i * 0.37 % 1) * 0.07, lit: false, flicker: 0 };
+  }).filter((sp, i, all) => { // sin letreros encimados (tampoco al empalmar el mosaico)
+    const prev = all.slice(0, i).filter((q) => q.keep !== false).pop();
+    const clash = (a, b) => a.x < b.x + b.w + size * 0.3 && b.x < a.x + a.w + size * 0.3 && Math.abs(a.y - b.y) < a.h;
+    const first = all.find((q) => q.keep !== false && q !== sp);
+    sp.keep = !(prev && clash(sp, prev)) && !(first && i === all.length - 1 && clash(sp, { ...first, x: first.x + tileW }));
+    return sp.keep;
+  });
+
+  // Pasarela metálica: franja de día y de noche, un periodo más ancha que la pantalla.
+  const span = size * 1.6;
+  const walkW = Math.ceil(width / span + 2) * span;
+  const deckH = size * 0.28;
+  const walkway = {};
+  for (const m of ['day', 'night']) {
+    const [c, g] = offscreen(walkW, height - groundY, true);
+    const frame = m === 'day' ? '#3a4058' : '#151a3d';
+    const beam = m === 'day' ? '#2e3348' : '#10142f';
+    g.fillStyle = frame;
+    g.fillRect(0, 0, walkW, height - groundY);
+    g.strokeStyle = beam;
+    g.lineWidth = Math.max(2, size * 0.12);
+    g.beginPath();
+    for (let x = 0; x < walkW; x += span) {
+      g.moveTo(x, deckH); g.lineTo(x + span / 2, height - groundY);
+      g.moveTo(x + span, deckH); g.lineTo(x + span / 2, height - groundY);
+    }
+    g.stroke();
+    g.fillStyle = m === 'day' ? '#5a6278' : '#1f2548';
+    g.fillRect(0, 0, walkW, deckH);
+    g.fillStyle = m === 'day' ? '#8a93aa' : '#3a4476';
+    g.fillRect(0, 0, walkW, Math.max(2, size * 0.05));
+    walkway[m] = c;
   }
-  fx.sparks = fx.sparks.filter((s) => s.life > 0 && s.y > -0.2);
+  const walk = { ...walkway, y0: 0, h: height - groundY, w: walkW, opaque: true, cache: { step: -1, canvas: null } };
+  layers = { tileW, far, mid, near, signSprites, walkway: { ...walk, span, deckH } };
 }
 
-// ---------- Pasarela metálica ----------
-function drawWalkway(t) {
-  const deckH = size * 0.28;
-  ctx.fillStyle = t.frame;
-  ctx.fillRect(0, groundY, width, height - groundY);
-  // Vigas en diagonal bajo la pasarela, se desplazan con el suelo.
-  ctx.strokeStyle = t.beam;
-  ctx.lineWidth = Math.max(2, size * 0.12);
-  const span = size * 1.6;
-  const off = -((scroll * size) % span);
-  ctx.beginPath();
-  for (let x = off - span; x < width + span; x += span) {
-    ctx.moveTo(x, groundY + deckH);
-    ctx.lineTo(x + span / 2, height);
-    ctx.moveTo(x + span, groundY + deckH);
-    ctx.lineTo(x + span / 2, height);
+function skyImage(c) {
+  const [top, bottom] = skyColors(c);
+  const key = `${top}${bottom}${width}${height}`;
+  if (skyCache.key !== key) {
+    const [cv, g] = offscreen(width + 2 * size, groundY + size, true);
+    const grad = g.createLinearGradient(0, 0, 0, groundY + size);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bottom);
+    g.fillStyle = grad;
+    g.fillRect(0, 0, width + 2 * size, groundY + size);
+    skyCache = { key, canvas: cv };
   }
-  ctx.stroke();
-  // Placa superior y borde.
-  ctx.fillStyle = t.deck;
-  ctx.fillRect(0, groundY, width, deckH);
-  ctx.fillStyle = t.deckEdge;
-  ctx.fillRect(0, groundY, width, Math.max(2, size * 0.05));
-  // Líneas de luz que corren con el suelo.
-  ctx.fillStyle = t.light;
+  return skyCache.canvas;
+}
+
+// Mezcla día/noche de una capa, cacheada por escalón de oscuridad (1/24): una sola copia por cuadro.
+const STEPS = 24;
+function blended(layer, d) {
+  const step = Math.round(d * STEPS);
+  if (step === 0) return layer.day;
+  if (step === STEPS) return layer.night;
+  if (layer.cache.step !== step) {
+    const [c, g] = offscreen(layer.w, layer.h, layer.opaque);
+    g.drawImage(layer.day, 0, 0, layer.w, layer.h);
+    g.globalAlpha = step / STEPS;
+    g.drawImage(layer.night, 0, 0, layer.w, layer.h);
+    layer.cache = { step, canvas: c };
+  }
+  return layer.cache.canvas;
+}
+
+function drawTile(layer, layerSpeed, d) {
+  const tile = blended(layer, d);
+  const w = layer.w;
+  const x = -((scroll * size * layerSpeed) % w);
+  ctx.drawImage(tile, x, layer.y0, w, layer.h);
+  if (x + w < width) ctx.drawImage(tile, x + w, layer.y0, w, layer.h);
+}
+
+function updateSigns(dt, c) {
+  const on = neonLevel(c);
+  for (const s of layers.signSprites) {
+    const want = c >= s.threshold && on > 0.2;
+    if (want && !s.lit) s.flicker = 0.8; // al anochecer, cada letrero parpadea antes de quedar encendido
+    s.lit = want;
+    s.flicker = Math.max(0, s.flicker - dt);
+  }
+}
+
+function drawSigns(c) {
+  const on = neonLevel(c);
+  const w = layers.tileW;
+  const off = (scroll * size * 0.3) % w;
+  for (const s of layers.signSprites) {
+    let level = s.lit ? on : 0;
+    if (s.flicker > 0) level = Math.random() < 0.45 ? 0 : on;
+    for (const base of [s.x - off, s.x - off + w, s.x - off - w]) {
+      if (base + s.w < 0 || base > width) continue;
+      ctx.drawImage(s.off, base, s.y, s.w, s.h);
+      if (level > 0) {
+        ctx.globalAlpha = level;
+        ctx.drawImage(s.on, base, s.y, s.w, s.h);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+}
+
+function drawWalkway(c) {
+  const wk = layers.walkway;
+  const x = -((scroll * size) % wk.span);
+  ctx.drawImage(blended(wk, darkness(c)), x, groundY, wk.w, wk.h);
+  // Líneas de luz cian: tenues de día, fuertes de noche.
+  ctx.fillStyle = rgba('#00f0ff', 0.35 + 0.65 * neonLevel(c));
   const dash = size * 0.9;
-  const gap = size * 0.6;
-  const period = dash + gap;
+  const period = dash + size * 0.6;
   const o2 = -((scroll * size) % period);
-  const ly = groundY + deckH * 0.55;
-  for (let x = o2; x < width; x += period) ctx.fillRect(x, ly, dash, Math.max(2, size * 0.06));
+  const ly = groundY + wk.deckH * 0.55;
+  for (let xx = o2; xx < width; xx += period) ctx.fillRect(xx, ly, dash, Math.max(2, size * 0.06));
+}
+
+// ---------- Obstáculos (#ff2e63) ----------
+let glowMagenta = null;
+function magentaGlow() {
+  if (!glowMagenta) {
+    const [c, g] = offscreen(64, 64);
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, rgba(OBSTACLE, 0.7));
+    grad.addColorStop(1, rgba(OBSTACLE, 0));
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    glowMagenta = c;
+  }
+  return glowMagenta;
+}
+
+function drawBarrier(o, time, night) {
+  const x = o.x * size, w = o.w * size, h = o.h * size, top = groundY - h;
+  const post = Math.max(3, size * 0.12);
+  // Halo suave detrás del campo (sprite pintado una vez).
+  ctx.globalAlpha = 0.25 + 0.35 * night;
+  ctx.drawImage(magentaGlow(), x - w * 0.4, top - h * 0.2, w * 1.8, h * 1.4);
+  ctx.globalAlpha = 1;
+  // Campo de energía con líneas que suben.
+  ctx.fillStyle = rgba(OBSTACLE, 0.55);
+  ctx.fillRect(x + post, top + size * 0.08, w - 2 * post, h - size * 0.08);
+  ctx.fillStyle = mix(OBSTACLE, '#ffffff', 0.45);
+  const step = size * 0.22;
+  const offY = (time * size * 1.5) % step;
+  for (let y = groundY - offY; y > top + size * 0.1; y -= step) ctx.fillRect(x + post, y, w - 2 * post, Math.max(1, size * 0.03));
+  ctx.fillStyle = OBSTACLE;
+  ctx.fillRect(x + w / 2 - Math.max(1, size * 0.02), top + size * 0.08, Math.max(2, size * 0.04), h - size * 0.08);
+  // Postes oscuros con emisor magenta arriba.
+  ctx.fillStyle = '#20222d';
+  ctx.fillRect(x, top, post, h);
+  ctx.fillRect(x + w - post, top, post, h);
+  ctx.fillStyle = OBSTACLE;
+  ctx.fillRect(x - post * 0.2, top, post * 1.4, Math.max(2, size * 0.07));
+  ctx.fillRect(x + w - post * 1.2, top, post * 1.4, Math.max(2, size * 0.07));
+}
+
+function drawBlock(o) {
+  const x = o.x * size, w = o.w * size, h = o.h * size, top = groundY - h;
+  ctx.fillStyle = '#1b1c24';
+  ctx.fillRect(x, top, w, h);
+  // Franjas de peligro en diagonal, recortadas al bloque.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x + size * 0.06, top + size * 0.12, w - size * 0.12, h * 0.42);
+  ctx.clip();
+  ctx.fillStyle = OBSTACLE;
+  const sw = size * 0.2;
+  for (let sx = x - h; sx < x + w + h; sx += sw * 2) {
+    ctx.beginPath();
+    ctx.moveTo(sx, top + size * 0.12 + h * 0.42);
+    ctx.lineTo(sx + sw, top + size * 0.12 + h * 0.42);
+    ctx.lineTo(sx + sw + h * 0.42, top + size * 0.12);
+    ctx.lineTo(sx + h * 0.42, top + size * 0.12);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle = OBSTACLE;
+  ctx.fillRect(x, top, w, Math.max(2, size * 0.06)); // borde superior encendido
+  ctx.fillStyle = '#2c2e3a';
+  ctx.fillRect(x, groundY - h * 0.28, w, Math.max(1, size * 0.03));
+}
+
+// Patrones de muestra con las medidas del juego: simples, alto, doble y ancho.
+const PATTERNS = [
+  [{ type: 'block', x: 0, w: 0.8, h: 0.9 }],
+  [{ type: 'barrier', x: 0, w: 0.5, h: 1.25 }],
+  [{ type: 'block', x: 0, w: 0.45, h: 0.8 }, { type: 'barrier', x: 0.95, w: 0.5, h: 1.0 }],
+  [{ type: 'barrier', x: 0, w: 0.9, h: 0.75 }],
+  [{ type: 'block', x: 0, w: 1.0, h: 0.7 }],
+];
+
+function spawnPattern() {
+  const pat = PATTERNS[patternIndex++ % PATTERNS.length];
+  const group = {};
+  for (const b of pat) obstacles.push({ ...b, x: width / size + b.x, group });
+}
+
+// Momento ideal de salto (centro de la ventana del juego) para el salto automático.
+function jumpLead(h, w, v) {
+  const a = Math.max(h - HITBOX_INSET, 0);
+  const t1 = (JUMP_SPEED - Math.sqrt(JUMP_SPEED ** 2 - 2 * GRAVITY_UP * a)) / GRAVITY_UP;
+  const above = Math.sqrt((2 * (JUMP_HEIGHT - a)) / GRAVITY_UP) + Math.sqrt((2 * (JUMP_HEIGHT - a)) / GRAVITY_DOWN);
+  return t1 + (above - (1 - 2 * HITBOX_INSET + w) / v) / 2;
 }
 
 // ---------- Androide ----------
-// Coordenadas en lados del personaje, origen en los pies, y hacia arriba negativo.
 function limb(x0, y0, a1, l1, a2, l2) {
-  // a1: ángulo del segmento superior desde la vertical hacia abajo (positivo = hacia adelante).
   const x1 = x0 + Math.sin(a1) * l1;
   const y1 = y0 + Math.cos(a1) * l1;
-  const x2 = x1 + Math.sin(a2) * l2;
-  const y2 = y1 + Math.cos(a2) * l2;
-  return [x0, y0, x1, y1, x2, y2];
+  return [x0, y0, x1, y1, x1 + Math.sin(a2) * l2, y1 + Math.cos(a2) * l2];
+}
+// Pierna de dos segmentos que alcanza el pie en (fx, fy); la rodilla apunta hacia adelante.
+function legIK(hx, hy, fx, fy, l) {
+  const dx = fx - hx, dy = fy - hy;
+  const d = Math.min(Math.hypot(dx, dy), 2 * l - 1e-4);
+  const theta = Math.atan2(dx, dy);
+  const alpha = Math.acos(d / (2 * l));
+  const kx = hx + Math.sin(theta + alpha) * l;
+  const ky = hy + Math.cos(theta + alpha) * l;
+  return [hx, hy, kx, ky, hx + Math.sin(theta) * d, hy + Math.cos(theta) * d];
+}
+
+const LEG = 0.34; // muslo = pantorrilla
+const HIP_Y = -0.58; // cadera sobre los pies, parado
+const MAX_STRIDE = 0.7; // lo que el pie apoyado recorre hacia atrás, en lados
+// Cadencia: un ciclo (dos pasos) más corto cuanto más rápido se corre.
+const cycleTime = (v) => 0.42 * Math.sqrt(8 / v);
+
+// Pie en fase q (0..1): apoyado al principio (se mueve hacia atrás a la velocidad del suelo), luego en el aire.
+function footAt(q, v) {
+  const T = cycleTime(v);
+  const duty = Math.min(0.3, MAX_STRIDE / (v * T));
+  const D = v * duty * T;
+  if (q < duty) return { x: D / 2 - v * q * T, y: 0, stance: q / duty };
+  const s = (q - duty) / (1 - duty);
+  const ease = 0.5 - 0.5 * Math.cos(Math.PI * s);
+  return { x: -D / 2 + D * ease - 0.12 * Math.sin(Math.PI * s) * (1 - s), y: -0.36 * Math.sin(Math.PI * s), stance: -1 };
 }
 
 function pose() {
-  const air = player.y > 0;
-  const p = runPhase;
-  const crashT = fx.crash;
-  let legs, arms, lean, bob;
-  if (crashT > 0) {
-    legs = { near: [0.5, -0.1], far: [-0.2, -0.6] };
-    arms = { near: [-2.2, -2.6], far: [-1.8, -2.2] };
-    lean = -0.35 * Math.min(1, (1 - crashT) * 6);
-    bob = 0;
-  } else if (air) {
-    const up = Math.max(0, Math.min(1, player.vy / JUMP_SPEED)); // 1 al despegar, 0 en la cima
-    legs = { near: [1.1 - up * 0.3, -0.2], far: [-0.3, -1.2 + up * 0.4] };
-    arms = { near: [-0.9 - up * 0.6, -0.4], far: [0.8, 1.6] };
-    lean = 0.12;
-    bob = 0;
-  } else {
-    const s = Math.sin(p);
-    const kneeNear = 0.25 + 1.05 * Math.max(0, Math.cos(p));
-    const kneeFar = 0.25 + 1.05 * Math.max(0, Math.cos(p + Math.PI));
-    const thighNear = 0.65 * s;
-    const thighFar = -0.65 * s;
-    legs = { near: [thighNear, thighNear - kneeNear], far: [thighFar, thighFar - kneeFar] };
-    arms = { near: [-0.7 * s, -0.7 * s + 1.4], far: [0.7 * s, 0.7 * s + 1.4] };
-    lean = 0.14;
-    bob = -0.05 * Math.abs(Math.cos(p));
+  const v = speed();
+  if (fx.crash > 0) {
+    const hip = [0, HIP_Y];
+    return {
+      hip, lean: -0.35 * Math.min(1, (1 - fx.crash) * 6),
+      near: limb(hip[0] + 0.02, hip[1], 0.5, LEG, -0.1, LEG), far: limb(hip[0] - 0.02, hip[1], -0.2, LEG, -0.6, LEG),
+      arms: { near: [-2.2, -2.6], far: [-1.8, -2.2] },
+    };
   }
-  return { legs, arms, lean, bob };
+  if (player.y > 0) {
+    const up = clamp01(player.vy / JUMP_SPEED);
+    const hip = [0, HIP_Y];
+    return {
+      hip, lean: 0.1,
+      near: limb(hip[0] + 0.02, hip[1], 1.1 - up * 0.3, LEG, -0.2, LEG), far: limb(hip[0] - 0.02, hip[1], -0.3, LEG, -1.2 + up * 0.4, LEG),
+      arms: { near: [-0.9 - up * 0.6, -0.4], far: [0.8, 1.6] },
+    };
+  }
+  const fA = footAt(runPhase % 1, v);
+  const fB = footAt((runPhase + 0.5) % 1, v);
+  const dip = Math.max(fA.stance >= 0 ? Math.sin(Math.PI * fA.stance) : 0, fB.stance >= 0 ? Math.sin(Math.PI * fB.stance) : 0);
+  const hip = [0, HIP_Y + 0.05 * dip];
+  const swing = Math.cos(2 * Math.PI * runPhase);
+  return {
+    hip, lean: 0.12, foot: fA,
+    near: legIK(hip[0] + 0.02, hip[1], fA.x, fA.y, LEG),
+    far: legIK(hip[0] - 0.02, hip[1], fB.x, fB.y, LEG),
+    arms: { near: [-0.8 * swing, -0.8 * swing + 1.5], far: [0.8 * swing, 0.8 * swing + 1.5] },
+  };
 }
 
-function drawAndroid(t) {
-  const { legs, arms, lean, bob } = pose();
+let glowCyan = null;
+function drawGlow(x, y, r, strength) {
+  if (!glowCyan) {
+    const [c, g] = offscreen(64, 64);
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(0, 240, 255, 0.9)');
+    grad.addColorStop(0.35, 'rgba(0, 240, 255, 0.35)');
+    grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+    glowCyan = c;
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = strength;
+  ctx.drawImage(glowCyan, x - r, y - r, r * 2, r * 2);
+  ctx.restore();
+}
+
+function drawAndroid(c) {
+  const P = pose();
   const s = size;
+  const night = darkness(c);
   const baseX = Math.round(width * 0.2) + s / 2;
   const baseY = groundY - player.y * s;
-
-  // Estirar y aplastar, anclado en los pies (igual que el juego).
   const airStretch = player.y > 0 ? -0.12 * Math.min(Math.abs(player.vy) / JUMP_SPEED, 1) : 0;
   const k = Math.min(Math.max(fx.squash + airStretch, -0.3), 0.35);
 
@@ -231,31 +607,21 @@ function drawAndroid(t) {
   ctx.translate(baseX, baseY);
   ctx.scale(1 + k, 1 - k);
   ctx.scale(s, s);
-  ctx.rotate(fx.crash > 0 ? lean : lean * 0.8);
+  ctx.rotate(fx.crash > 0 ? P.lean : P.lean * 0.8);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Proporciones: 1,3 lados de alto (la zona de choque sigue siendo el cuadrado de 1 lado).
-  const hipY = -0.6 + bob;
-  const hip = [0, hipY];
-  const shoulder = [0.06, -1.0 + bob];
-  const legL = 0.32;
+  const hip = P.hip;
+  const shoulder = [hip[0] + 0.06, hip[1] - 0.4];
   const armL = 0.25;
   const L = {
-    farLeg: limb(hip[0] - 0.02, hip[1], legs.far[0], legL, legs.far[1], legL),
-    nearLeg: limb(hip[0] + 0.02, hip[1], legs.near[0], legL, legs.near[1], legL),
-    farArm: limb(shoulder[0] - 0.03, shoulder[1], arms.far[0], armL, arms.far[1], armL),
-    nearArm: limb(shoulder[0] + 0.03, shoulder[1], arms.near[0], armL, arms.near[1], armL),
+    farLeg: P.far, nearLeg: P.near,
+    farArm: limb(shoulder[0] - 0.03, shoulder[1], P.arms.far[0], armL, P.arms.far[1], armL),
+    nearArm: limb(shoulder[0] + 0.03, shoulder[1], P.arms.near[0], armL, P.arms.near[1], armL),
   };
-
   const seg = (pts, w, color) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = w;
-    ctx.beginPath();
-    ctx.moveTo(pts[0], pts[1]);
-    ctx.lineTo(pts[2], pts[3]);
-    ctx.lineTo(pts[4], pts[5]);
-    ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); ctx.lineTo(pts[2], pts[3]); ctx.lineTo(pts[4], pts[5]); ctx.stroke();
   };
   const torsoPath = () => {
     ctx.beginPath();
@@ -265,140 +631,95 @@ function drawAndroid(t) {
     ctx.lineTo(hip[0] - 0.16, hip[1] + 0.04);
     ctx.closePath();
   };
-  const headPath = () => {
-    ctx.beginPath();
-    ctx.ellipse(shoulder[0] + 0.06, shoulder[1] - 0.2, 0.15, 0.16, 0, 0, Math.PI * 2);
-  };
+  const headPath = () => { ctx.beginPath(); ctx.ellipse(shoulder[0] + 0.06, shoulder[1] - 0.2, 0.15, 0.16, 0, 0, Math.PI * 2); };
   const neck = (w, color) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = w;
-    ctx.beginPath();
-    ctx.moveTo(shoulder[0] + 0.02, shoulder[1] + 0.02);
-    ctx.lineTo(shoulder[0] + 0.05, shoulder[1] - 0.1);
-    ctx.stroke();
+    ctx.strokeStyle = color; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(shoulder[0] + 0.02, shoulder[1] + 0.02); ctx.lineTo(shoulder[0] + 0.05, shoulder[1] - 0.1); ctx.stroke();
   };
   const foot = (pts, color) => {
     ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.ellipse(pts[4] + 0.06, pts[5] - 0.02, 0.1, 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.ellipse(pts[4] + 0.06, pts[5] - 0.02, 0.1, 0.05, 0, 0, Math.PI * 2); ctx.fill();
   };
-
-  // 1) Contorno: todas las piezas un poco más gruesas; la pasada 2 tapa el interior.
-  //    De noche, luz cian. De día, además, un anillo oscuro por fuera: el metal y el cian se
-  //    confunden con el smog claro (contraste ~1,0 y ~1,5) y el anillo oscuro los separa del fondo.
+  // Contorno: anillo oscuro (se nota de día) + línea cian (se nota de noche).
   const outline = (o, color) => {
-    seg(L.farLeg, 0.15 + o, color);
-    seg(L.farArm, 0.11 + o, color);
-    neck(0.09 + o, color);
-    ctx.strokeStyle = color;
-    ctx.lineWidth = o;
-    torsoPath();
-    ctx.stroke();
-    headPath();
-    ctx.stroke();
-    seg(L.nearLeg, 0.16 + o, color);
-    seg(L.nearArm, 0.12 + o, color);
+    seg(L.farLeg, 0.15 + o, color); seg(L.farArm, 0.11 + o, color); neck(0.09 + o, color);
+    ctx.strokeStyle = color; ctx.lineWidth = o; torsoPath(); ctx.stroke(); headPath(); ctx.stroke();
+    seg(L.nearLeg, 0.16 + o, color); seg(L.nearArm, 0.12 + o, color);
   };
-  if (t.rimOuter) outline(0.1, t.rimOuter);
-  outline(0.055, t.rim);
+  outline(0.1, rgba('#1a1f33', 1 - night));
+  outline(0.055, rgba('#00f0ff', 0.9 + 0.05 * night));
 
-  // 2) Cuerpo. Atrás: pierna izquierda (metal) y brazo izquierdo (chaqueta).
   seg(L.farLeg, 0.15, BODY.metalFar);
   foot(L.farLeg, BODY.metalDark);
   seg(L.farArm, 0.11, BODY.jacketFar);
-
-  // Torso con chaqueta, cuello alto y cierre.
-  ctx.fillStyle = BODY.jacket;
-  torsoPath();
-  ctx.fill();
-  ctx.strokeStyle = '#2c3348';
-  ctx.lineWidth = 0.025;
-  ctx.beginPath();
-  ctx.moveTo(shoulder[0] + 0.1, shoulder[1]);
-  ctx.lineTo(hip[0] + 0.09, hip[1]);
-  ctx.stroke();
-
-  // Cabeza: cuello, cabello oscuro atrás, cara y visor.
+  ctx.fillStyle = BODY.jacket; torsoPath(); ctx.fill();
+  ctx.strokeStyle = '#2c3348'; ctx.lineWidth = 0.025;
+  ctx.beginPath(); ctx.moveTo(shoulder[0] + 0.1, shoulder[1]); ctx.lineTo(hip[0] + 0.09, hip[1]); ctx.stroke();
   neck(0.09, BODY.skin);
-  ctx.fillStyle = BODY.skin;
-  headPath();
-  ctx.fill();
+  ctx.fillStyle = BODY.skin; headPath(); ctx.fill();
   ctx.fillStyle = BODY.boot;
-  ctx.beginPath();
-  ctx.ellipse(shoulder[0] + 0.02, shoulder[1] - 0.25, 0.14, 0.11, -0.3, Math.PI * 0.9, Math.PI * 2.05);
-  ctx.fill();
-
-  // Adelante: pierna derecha (humana) y brazo derecho (metal).
+  ctx.beginPath(); ctx.ellipse(shoulder[0] + 0.02, shoulder[1] - 0.25, 0.14, 0.11, -0.3, Math.PI * 0.9, Math.PI * 2.05); ctx.fill();
   seg(L.nearLeg, 0.16, BODY.pants);
   foot(L.nearLeg, BODY.boot);
 
-  // Articulaciones y línea de luz en la pierna metálica (se dibujan después para que se vean).
   const joints = (pts, r) => {
     ctx.fillStyle = BODY.joint;
-    for (const i of [0, 2]) {
-      ctx.beginPath();
-      ctx.arc(pts[i], pts[i + 1], r, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    for (const i of [0, 2]) { ctx.beginPath(); ctx.arc(pts[i], pts[i + 1], r, 0, Math.PI * 2); ctx.fill(); }
   };
-  const lightLine = (pts, alpha) => {
-    ctx.globalAlpha = alpha;
-    seg(pts, 0.03, BODY.cyan);
-    ctx.globalAlpha = 1;
-  };
+  const lightLine = (pts, a) => { ctx.globalAlpha = a; seg(pts, 0.03, BODY.cyan); ctx.globalAlpha = 1; };
+  const glow = 0.35 + 0.55 * night;
   joints(L.farLeg, 0.05);
-  lightLine(L.farLeg, 0.6 + 0.4 * t.glow);
-
+  lightLine(L.farLeg, 0.6 + 0.4 * glow);
   seg(L.nearArm, 0.12, BODY.metal);
   joints(L.nearArm, 0.045);
-  lightLine(L.nearArm, 0.6 + 0.4 * t.glow);
-  // Hombro metálico.
+  lightLine(L.nearArm, 0.6 + 0.4 * glow);
   ctx.fillStyle = BODY.metalDark;
-  ctx.beginPath();
-  ctx.arc(shoulder[0] + 0.03, shoulder[1] + 0.02, 0.07, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(shoulder[0] + 0.03, shoulder[1] + 0.02, 0.07, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = BODY.cyan;
-  ctx.beginPath();
-  ctx.arc(shoulder[0] + 0.03, shoulder[1] + 0.02, 0.025, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(shoulder[0] + 0.03, shoulder[1] + 0.02, 0.025, 0, Math.PI * 2); ctx.fill();
 
-  // Visor que brilla (parpadea al chocar).
   const visorOn = fx.crash > 0 ? Math.random() > 0.4 : true;
   const vx = shoulder[0] + 0.11;
   const vy = shoulder[1] - 0.22;
   ctx.fillStyle = visorOn ? BODY.cyan : '#1b4a50';
   ctx.beginPath();
-  ctx.moveTo(vx - 0.06, vy - 0.035);
-  ctx.lineTo(vx + 0.11, vy - 0.02);
-  ctx.lineTo(vx + 0.11, vy + 0.03);
-  ctx.lineTo(vx - 0.06, vy + 0.035);
-  ctx.closePath();
-  ctx.fill();
+  ctx.moveTo(vx - 0.06, vy - 0.035); ctx.lineTo(vx + 0.11, vy - 0.02); ctx.lineTo(vx + 0.11, vy + 0.03); ctx.lineTo(vx - 0.06, vy + 0.035);
+  ctx.closePath(); ctx.fill();
   ctx.restore();
-
-  if (visorOn) drawGlow(baseX + (vx + 0.03) * s * (1 + k), baseY + vy * s * (1 - k), s * 0.2, t.glow * 0.7);
+  if (visorOn) drawGlow(baseX + (vx + 0.03) * s * (1 + k), baseY + vy * s * (1 - k), s * 0.2, glow * 0.7);
 }
 
-// Brillo: degradado radial pintado una sola vez y reutilizado (evita desenfoque en tiempo real).
-let glowSprite = null;
-function drawGlow(x, y, r, strength) {
-  if (!glowSprite) {
-    glowSprite = document.createElement('canvas');
-    glowSprite.width = glowSprite.height = 64;
-    const g = glowSprite.getContext('2d');
-    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, 'rgba(0, 240, 255, 0.9)');
-    grad.addColorStop(0.35, 'rgba(0, 240, 255, 0.35)');
-    grad.addColorStop(1, 'rgba(0, 240, 255, 0)');
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
+// ---------- Humo, chispas, zona de choque ----------
+function land() {
+  fx.squash = 0.3;
+  const x = playerX() + 0.5;
+  for (let i = 0; i < 7; i++) {
+    fx.smoke.push({ x: x + (Math.random() - 0.5) * 0.8, y: 0.08, r: 0.1 + Math.random() * 0.08, vx: (Math.random() - 0.5) * 1.6, vy: 0.3 + Math.random() * 0.6, life: 1 });
   }
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = strength;
-  ctx.drawImage(glowSprite, x - r, y - r, r * 2, r * 2);
-  ctx.restore();
+}
+
+function drawSmoke(c) {
+  // Gris; de noche toma un leve tono cian.
+  const col = mix('#9aa0ab', '#7fb6c4', darkness(c));
+  for (const p of fx.smoke) {
+    ctx.fillStyle = rgba(col, 0.45 * p.life);
+    ctx.beginPath();
+    ctx.arc(p.x * size, groundY - p.y * size, p.r * size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function crash() {
+  if (fx.crash > 0) return;
+  fx.crash = 1;
+  fx.shake = 0.25;
+  const x = playerX() + 0.8;
+  const y = player.y + 0.7;
+  for (let i = 0; i < 22; i++) {
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.6;
+    const v = 3 + Math.random() * 6;
+    fx.sparks.push({ x, y, vx: Math.cos(a) * v - 1, vy: -Math.sin(a) * v, life: 1, c: ['#ffd600', '#ffffff', '#00f0ff'][i % 3] });
+  }
 }
 
 function drawSparks() {
@@ -407,98 +728,165 @@ function drawSparks() {
     ctx.globalAlpha = Math.max(0, p.life);
     ctx.strokeStyle = p.c;
     ctx.lineWidth = Math.max(1.5, size * 0.05);
-    const x = p.x * size;
-    const y = groundY - p.y * size;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x - p.vx * size * 0.03, y + p.vy * size * 0.03);
-    ctx.stroke();
+    const x = p.x * size, y = groundY - p.y * size;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x - p.vx * size * 0.03, y + p.vy * size * 0.03); ctx.stroke();
   }
   ctx.globalAlpha = 1;
 }
 
 function drawHitbox() {
-  const left = (Math.round(width * 0.2) / size + HITBOX_INSET) * size;
+  const left = (playerX() + HITBOX_INSET) * size;
   const w = (1 - 2 * HITBOX_INSET) * size;
   const bottom = groundY - (player.y + HITBOX_INSET) * size;
   const top = groundY - (player.y + 1) * size;
-  ctx.save();
-  ctx.setLineDash([4, 3]);
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#ffffff';
-  ctx.strokeRect(left, top, w, bottom - top);
-  ctx.restore();
+  ctx.save(); ctx.setLineDash([4, 3]); ctx.lineWidth = 2; ctx.strokeStyle = '#ffffff';
+  ctx.strokeRect(left, top, w, bottom - top); ctx.restore();
 }
 
-// ---------- Cuadro y medición ----------
+// ---------- Bucle ----------
+let time = 0;
+function jump() {
+  if (player.y > 0 || fx.crash > 0) return;
+  player.vy = JUMP_SPEED;
+  player.y = 0.0001;
+  fx.squash = -0.25;
+}
+
+function update(dt) {
+  dt *= slow ? 0.25 : 1;
+  time += dt;
+  cycle = (cycle + dt * cycleRate) % 1;
+  const v = speed();
+  const running = fx.crash <= 0;
+  if (running) {
+    scroll += v * dt;
+    if (player.y === 0) runPhase = (runPhase + dt / cycleTime(v)) % 1;
+    for (const o of obstacles) o.x -= v * dt;
+    obstacles = obstacles.filter((o) => o.x + o.w > -1);
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) { spawnPattern(); spawnTimer = 1.5; }
+    if (autoJump && player.y === 0) {
+      const next = obstacles.find((o) => o.x + o.w > playerX() + HITBOX_INSET);
+      if (next) {
+        const grp = obstacles.filter((o) => o.group === next.group);
+        const left = Math.min(...grp.map((o) => o.x));
+        const right = Math.max(...grp.map((o) => o.x + o.w));
+        const hMax = Math.max(...grp.map((o) => o.h));
+        if ((left - (playerX() + 1 - HITBOX_INSET)) / v <= jumpLead(hMax, right - left, v)) jump();
+      }
+    }
+  }
+  if (player.y > 0) {
+    player.vy -= (player.vy > 0 ? GRAVITY_UP : GRAVITY_DOWN) * dt;
+    player.y += player.vy * dt;
+    if (player.y <= 0) { player.y = 0; player.vy = 0; land(); }
+  }
+  fx.squash *= Math.exp(-12 * dt);
+  fx.shake = Math.max(0, fx.shake - dt);
+  fx.crash = Math.max(0, fx.crash - dt / 1.2);
+  for (const p of fx.sparks) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 14 * dt; p.life -= dt / 0.6; }
+  fx.sparks = fx.sparks.filter((p) => p.life > 0 && p.y > -0.2);
+  for (const p of fx.smoke) { p.x += (p.vx - (running ? v : 0)) * dt; p.y += p.vy * dt; p.vy *= Math.exp(-3 * dt); p.r += dt * 0.6; p.life -= dt / 0.55; }
+  fx.smoke = fx.smoke.filter((p) => p.life > 0);
+  updateSigns(dt, cycle);
+}
+
 const frameTimes = [];
-function drawHud() {
+function drawHud(c) {
   const fps = frameTimes.length > 1 ? Math.round((1000 * (frameTimes.length - 1)) / (frameTimes[frameTimes.length - 1] - frameTimes[0])) : 0;
-  ctx.font = '600 13px sans-serif';
+  ctx.font = '600 12px sans-serif';
   ctx.textBaseline = 'bottom';
-  ctx.fillStyle = mode === 'day' ? 'rgba(20, 24, 50, 0.8)' : 'rgba(255, 255, 255, 0.75)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
   ctx.textAlign = 'left';
-  ctx.fillText(`${fps} fps`, 8, height - 8);
+  ctx.fillText(`${fps} fps · hora ${Math.round(c * 100)}%`, 8, height - 8);
   ctx.textAlign = 'right';
   ctx.fillText(LABEL, width - 8, height - 8);
 }
 
 function draw() {
-  const t = THEMES[mode];
+  const c = cycle;
+  const d = darkness(c);
   ctx.save();
   if (fx.shake > 0) {
     const m = (fx.shake / 0.25) * size * 0.2;
     ctx.translate((Math.random() - 0.5) * 2 * m, (Math.random() - 0.5) * 2 * m);
   }
-  ctx.fillStyle = t.bg;
-  ctx.fillRect(-size, -size, width + 2 * size, height + 2 * size);
-  drawWalkway(t);
-  drawAndroid(t);
+  ctx.drawImage(skyImage(c), -size, -size, width + 2 * size, groundY + size);
+  drawTile(layers.far, 0.1, d);
+  drawTile(layers.mid, 0.3, d);
+  drawSigns(c);
+  drawTile(layers.near, 0.6, d);
+  drawWalkway(c);
+  drawSmoke(c);
+  for (const o of obstacles) (o.type === 'barrier' ? drawBarrier(o, time, d) : drawBlock(o));
+  drawAndroid(c);
   drawSparks();
   if (showHitbox) drawHitbox();
   ctx.restore();
-  drawHud();
+  drawHud(c);
 }
 
 let last = 0;
-function loop(time) {
-  const dt = last ? Math.min((time - last) / 1000, 1 / 30) : 0;
-  last = time;
-  frameTimes.push(time);
+function loop(t) {
+  const dt = last ? Math.min((t - last) / 1000, 1 / 30) : 0;
+  last = t;
+  frameTimes.push(t);
   while (frameTimes.length > 60) frameTimes.shift();
   update(dt);
   draw();
   requestAnimationFrame(loop);
 }
 
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  width = canvas.clientWidth;
+  height = canvas.clientHeight;
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  groundY = Math.round(height * 0.75);
+  size = Math.round(Math.min(width, height * 0.6) * 0.1);
+  glowCyan = null;
+  glowMagenta = null;
+  skyCache.key = '';
+  buildLayers();
+}
+
 // ---------- Controles ----------
-const buttons = document.querySelectorAll('#panel button');
-for (const b of buttons) b.addEventListener('pointerdown', (e) => e.stopPropagation());
-document.querySelectorAll('[data-mode]').forEach((b) =>
-  b.addEventListener('click', () => {
-    mode = b.dataset.mode;
-    document.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x === b));
-  }));
+const $ = (sel) => document.querySelectorAll(sel);
+for (const b of $('#panel button')) b.addEventListener('pointerdown', (e) => e.stopPropagation());
+const exclusive = (attr, fn) => $(`[${attr}]`).forEach((b) => b.addEventListener('click', () => {
+  $(`[${attr}]`).forEach((x) => x.classList.toggle('on', x === b));
+  fn(b.getAttribute(attr));
+}));
+exclusive('data-day', (v) => { dayVariant = v; skyCache.key = ''; buildLayers(); });
+exclusive('data-time', (v) => {
+  cycle = TIMES[v]; cycleRate = 0;
+  document.getElementById('cycle').classList.remove('on');
+  document.getElementById('fast').classList.remove('on');
+});
+const setCycle = (rate, id) => {
+  const same = cycleRate === rate;
+  cycleRate = same ? 0 : rate;
+  document.getElementById('cycle').classList.toggle('on', !same && id === 'cycle');
+  document.getElementById('fast').classList.toggle('on', !same && id === 'fast');
+  $('[data-time]').forEach((x) => x.classList.remove('on'));
+};
+document.getElementById('cycle').addEventListener('click', () => setCycle(1 / CYCLE_SECONDS, 'cycle'));
+document.getElementById('fast').addEventListener('click', () => setCycle(10 / CYCLE_SECONDS, 'fast'));
 document.getElementById('jump').addEventListener('click', jump);
 document.getElementById('crash').addEventListener('click', crash);
-document.getElementById('hitbox').addEventListener('click', (e) => {
-  showHitbox = !showHitbox;
-  e.currentTarget.classList.toggle('on', showHitbox);
+const toggle = (id, get, set) => document.getElementById(id).addEventListener('click', (e) => { set(!get()); e.currentTarget.classList.toggle('on', get()); });
+toggle('auto', () => autoJump, (v) => { autoJump = v; });
+toggle('slow', () => slow, (v) => { slow = v; });
+toggle('hitbox', () => showHitbox, (v) => { showHitbox = v; });
+document.getElementById('speed').addEventListener('click', (e) => {
+  speedIndex = (speedIndex + 1) % SPEEDS.length;
+  e.currentTarget.textContent = `Vel. ${SPEEDS[speedIndex]}`;
 });
-document.getElementById('slow').addEventListener('click', (e) => {
-  slow = !slow;
-  e.currentTarget.classList.toggle('on', slow);
-});
-canvas.addEventListener('pointerdown', (e) => {
-  e.preventDefault();
-  jump();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') {
-    e.preventDefault();
-    if (!e.repeat) jump();
-  }
-});
+document.getElementById('togglePanel').addEventListener('click', () => document.getElementById('panel').classList.toggle('hidden'));
+canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); jump(); });
+document.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) jump(); } });
 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('dblclick', (e) => e.preventDefault());
