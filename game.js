@@ -1,4 +1,7 @@
-const VERSION = 'v13';
+const VERSION = 'v14';
+
+// Modo de depuración: ?debug=1 en la URL muestra los FPS y la zona de choque.
+const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -47,19 +50,32 @@ const BEST_KEY = 'runner-game.best';
 const SHAKE_TIME = 0.25; // s
 const FLASH_TIME = 0.2; // s
 const MAX_PARTICLES = 48;
-// Cielo: color arriba y en el horizonte, de fácil a difícil. El horizonte queda claro para que
-// personaje y obstáculos siempre contrasten.
-const SKY_TOP = ['#87ceeb', '#3f4e9e'];
-const SKY_HORIZON = ['#d6f1ff', '#ffc9a0'];
-// Capas del fondo: posición como fracción del ciclo, altura y tamaño en lados. Velocidad relativa al suelo.
-const CLOUDS = { speed: 0.08, items: [[0.05, 0.2, 1], [0.32, 0.64, 0.7], [0.55, 0.23, 1.2], [0.8, 0.68, 0.8]] };
-const HILLS = { speed: 0.3, items: [[0, 4, 1.4], [0.27, 5, 2], [0.5, 3.5, 1.2], [0.74, 4.5, 1.7]] };
-const GROUND_MARK_SPACING = 1.5;
+// Ciudad cyberpunk (Dirección de arte en CLAUDE.md). #ff2e63 queda reservado para los obstáculos.
+const DAY = ['#9fc4d8', '#d6e4ec'];
+const SUNSET = ['#3d3a78', '#d9924e'];
+const NIGHT = ['#0a0e27', '#141a44'];
+const DAWN = ['#6f7fb0', '#d6c7b8'];
+const BUILDING_DAY = '#4a5068';
+const BUILDING_NIGHT = '#151a3d';
+const NEON = ['#00f0ff', '#b026ff', '#ffd600'];
+const WARNING = '#ff5a36'; // luces de aviso: solo en techos, lejos de la franja de juego
+// Ciclo día/noche: fracción del ciclo (0 día, ~0,4 atardecer, ~0,66 noche, ~0,92 amanecer).
+const CYCLE_SECONDS = 120;
+const CYCLE_START = 0.4; // cada partida empieza al atardecer
+// Nivel "Muy denso" aprobado en arte.html.
+const CITY_DENSITY = {
+  farW: [0.4, 0.9], farGap: 0.04, midW: [1.4, 2.3], midGap: [0.04, 0.2],
+  sign: 1, vsign: 1, screen: 0.65, holo: 1, bridge: 0.85, vehicles: 12, vents: 6, lit: 0.55, cables: 3, extraSign: 0.7,
+};
 
 let width = 0;
 let height = 0;
 let groundY = 0;
 let size = 0;
+let dpr = 1;
+let cycle = CYCLE_START;
+let clock = 0; // segundos de animación (se detiene en pausa)
+const frameTimes = [];
 
 // Posición vertical sobre el suelo y velocidad, en lados del personaje.
 const player = { y: 0, vy: 0 };
@@ -105,7 +121,7 @@ function saveBest(value) {
 
 const score = () => Math.floor(distance);
 
-const fx = { squash: 0, shake: 0, flash: 0, pop: 0, particles: [] };
+const fx = { squash: 0, shake: 0, flash: 0, pop: 0, particles: [], steam: [] };
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const difficulty = () => Math.min(Math.max((elapsed - RAMP_START) / (RAMP_END - RAMP_START), 0), 1);
@@ -121,6 +137,7 @@ function start() {
   distance = 0;
   elapsed = 0;
   newRecord = false;
+  cycle = CYCLE_START;
   fx.squash = 0;
   fx.particles = [];
   state = 'playing';
@@ -143,7 +160,7 @@ function hitsObstacle() {
 
 // Ajusta el canvas al tamaño de la pantalla, nítido en pantallas de alta densidad.
 function resize() {
-  const dpr = window.devicePixelRatio || 1;
+  dpr = window.devicePixelRatio || 1;
   width = canvas.clientWidth;
   height = canvas.clientHeight;
   canvas.width = Math.round(width * dpr);
@@ -152,6 +169,9 @@ function resize() {
   groundY = Math.round(height * 0.75);
   size = Math.round(Math.min(width, height * 0.6) * 0.1);
   if (isLandscape()) pause();
+  skyCache.key = '';
+  puffSprite = null;
+  buildCity();
   draw();
 }
 
@@ -247,6 +267,7 @@ function update(dt) {
   const hundreds = Math.floor(score() / 100);
   distance += speed() * dt;
   elapsed += dt;
+  cycle = (cycle + dt / CYCLE_SECONDS) % 1;
   if (Math.floor(score() / 100) > hundreds) fx.pop = 1; // el puntaje salta cada 100
   if (hitsObstacle()) gameOver();
 }
@@ -304,77 +325,594 @@ function mixColor(a, b, t) {
   return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
 }
 
-// Posición en pantalla (px) del borde izquierdo de un elemento que se repite en un ciclo.
-// Vuelve a la derecha solo cuando ya salió `margin` lados por la izquierda: margin debe ser
-// al menos el ancho del elemento, y el ciclo al menos el ancho de pantalla más ese margen.
-function wrapX(fraction, layerSpeed, period, margin) {
-  const x = (fraction * period - distance * layerSpeed) % period;
-  return ((x + period) % period - margin) * size;
+// ---------- Utilidades ----------
+const clamp01 = (t) => Math.min(1, Math.max(0, t));
+const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+function hex(c) { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function mix(a, b, t) {
+  const pa = hex(a), pb = hex(b);
+  const h = (i) => Math.round(lerp(pa[i], pb[i], t)).toString(16).padStart(2, '0');
+  return `#${h(0)}${h(1)}${h(2)}`;
+}
+function rgba(c, a) { const p = hex(c); return `rgba(${p[0]}, ${p[1]}, ${p[2]}, ${a})`; }
+function seeded(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function offscreen(w, h, opaque = false) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * dpr));
+  c.height = Math.max(1, Math.round(h * dpr));
+  const g = c.getContext('2d', { alpha: !opaque });
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return [c, g];
 }
 
-// El degradado del cielo es caro de pintar en cada cuadro: se pinta una vez en un canvas aparte
-// y solo se rehace cuando la dificultad cambia un escalón (1/50) o cambia el tamaño de pantalla.
-const skyCache = { canvas: document.createElement('canvas'), key: '' };
+// Azar solo para efectos visuales: no toca la secuencia de obstáculos (Math.random).
+const fxRandom = seeded(4242);
 
-function skyImage(m) {
-  const step = Math.round(difficulty() * 50);
-  const key = `${step}:${width}:${height}`;
+// ---------- Ciclo día/noche ----------
+function skyColors(c) {
+  const keys = [[0, DAY], [0.3, DAY], [0.4, SUNSET], [0.5, NIGHT], [0.82, NIGHT], [0.92, DAWN], [1, DAY]];
+  for (let i = 0; i < keys.length - 1; i++) {
+    const [c0, k0] = keys[i];
+    const [c1, k1] = keys[i + 1];
+    if (c >= c0 && c <= c1) {
+      const t = smooth(c0, c1, c);
+      return [mix(k0[0], k1[0], t), mix(k0[1], k1[1], t)];
+    }
+  }
+  return DAY;
+}
+const darkness = (c) => (c < 0.6 ? smooth(0.3, 0.5, c) : 1 - smooth(0.82, 0.94, c));
+const neonLevel = (c) => (c < 0.6 ? smooth(0.4, 0.5, c) : 1 - smooth(0.84, 0.9, c));
+
+// ---------- Ciudad: capas pintadas una vez (día y noche) + elementos animados ----------
+let city = null;
+let skyCache = { key: '', canvas: null };
+
+// Sprite con versión apagada y encendida (el brillo se pinta aquí, una sola vez).
+function neonSprite(w, h, paint) {
+  const [off, go] = offscreen(w, h);
+  const [on, gn] = offscreen(w, h);
+  paint(go, false);
+  paint(gn, true);
+  return { off, on, w, h };
+}
+
+function buildCity() {
+  const P = CITY_DENSITY;
+  const tileW = Math.ceil(width * 1.5);
+  const H = groundY;
+  const actionTop = H - size * 3.8; // franja de juego: sin letreros ni pantallas (legibilidad)
+  const skyDay = DAY[1];
+  const wrap = (x, w, fn) => { fn(x); if (x + w > tileW) fn(x - tileW); };
+  const make = (y0, paint) => {
+    y0 = Math.max(0, Math.floor(y0));
+    const [d, gd] = offscreen(tileW, H - y0);
+    const [n, gn] = offscreen(tileW, H - y0);
+    gd.translate(0, -y0);
+    gn.translate(0, -y0);
+    paint(gd, 'day');
+    paint(gn, 'night');
+    return { day: d, night: n, y0, h: H - y0, w: tileW, cache: { step: -1, canvas: null } };
+  };
+
+  // --- Geometría (una sola vez, igual para día y noche) ---
+  const rnd = seeded(12);
+  const R = (a, b) => a + rnd() * (b - a);
+
+  const farB = [];
+  for (let x = 0; x < tileW; ) {
+    const w = size * R(...P.farW);
+    const h = H * R(0.4, 0.82);
+    farB.push({ x, w, h, step: rnd() < 0.5 ? R(0.1, 0.25) : 0, spire: rnd() < 0.45, seed: rnd() * 1e9 });
+    x += w + size * rnd() * P.farGap;
+  }
+  const midB = [];
+  for (let x = 0; x < tileW; ) {
+    const w = size * R(...P.midW);
+    const h = H * R(0.38, 0.66); // altos: la fachada útil queda por encima de la franja de juego
+    midB.push({ x, w, h, seed: rnd() * 1e9 });
+    x += w + size * R(...P.midGap);
+  }
+
+  // Elementos animados, en coordenadas del mosaico de su capa.
+  const roofLights = []; // luces de aviso que parpadean
+  const vents = []; // ductos con vapor
+  const signs = []; // letreros horizontales y verticales
+  const screens = []; // pantallas gigantes
+  const holos = []; // anuncios holográficos
+
+  // --- Capa lejana: rascacielos con escalones, agujas y ventanas diminutas ---
+  const far = make(H * 0.18 - size * 1.5, (g, m) => {
+    const body = m === 'day' ? mix(skyDay, BUILDING_DAY, 0.28) : '#10153a';
+    for (const b of farB) {
+      const r = seeded(b.seed);
+      wrap(b.x, b.w, (x) => {
+        g.fillStyle = body;
+        g.fillRect(x, H - b.h, b.w, b.h);
+        if (b.step) g.fillRect(x + b.w * b.step, H - b.h - size * 0.9, b.w * (1 - 2 * b.step), size * 0.9);
+        if (b.spire) g.fillRect(x + b.w / 2 - 1, H - b.h - size * 2.2, Math.max(2, size * 0.05), size * 2.2);
+        if (m === 'night') {
+          for (let i = 0; i < b.w * b.h / (size * size) * 2.2; i++) {
+            const wx = x + r() * b.w, wy = H - r() * b.h;
+            if (wy < actionTop || r() < 0.5) {
+              g.fillStyle = r() < 0.5 ? 'rgba(255, 214, 0, 0.3)' : 'rgba(0, 240, 255, 0.25)';
+              g.fillRect(wx, wy, 1.6, 1.6);
+            }
+          }
+        }
+      });
+      if (m === 'day') roofLights.push({ layer: 'far', x: b.x + b.w / 2, y: H - b.h - (b.spire ? size * 2.2 : b.step ? size * 0.9 : 0), phase: rnd() });
+    }
+  });
+
+  // --- Capa media: fachadas con detalle, puentes, cables; letreros y pantallas aparte ---
+  const mid = make(H * 0.38 - size * 1.2, (g, m) => {
+    const night = m === 'night';
+    const body = night ? BUILDING_NIGHT : mix(skyDay, BUILDING_DAY, 0.45);
+    const side = night ? '#1d2350' : mix(body, '#ffffff', 0.12);
+    const ledge = night ? '#0f1330' : mix(body, '#2a2f42', 0.3);
+    const winOff = night ? '#0f1330' : mix(body, '#2c3146', 0.3);
+    midB.forEach((b, i) => {
+      const r = seeded(b.seed);
+      const top = H - b.h;
+      wrap(b.x, b.w, (x) => {
+        g.fillStyle = body; g.fillRect(x, top, b.w, b.h);
+        g.fillStyle = side; g.fillRect(x + b.w - size * 0.18, top, size * 0.18, b.h); // canto con luz
+        g.fillStyle = body; g.fillRect(x + b.w * 0.15, top - size * 0.5, b.w * 0.3, size * 0.5); // cuarto de máquinas
+        g.fillRect(x + b.w * 0.6, top - size * 0.35, size * 0.35, size * 0.35); // tanque
+        g.fillStyle = ledge;
+        for (let y = top + size * 1.2; y < H; y += size * 1.5) g.fillRect(x, y, b.w, Math.max(1.5, size * 0.07)); // cornisas
+        g.fillRect(x + size * 0.12, top, Math.max(1.5, size * 0.05), b.h); // tubería
+      });
+      // Ventanas en rejilla.
+      const cols = Math.floor((b.w - size * 0.4) / (size * 0.32));
+      const rows = Math.floor(b.h / (size * 0.42));
+      for (let rr = 0; rr < rows; rr++) {
+        for (let cc = 0; cc < cols; cc++) {
+          const on = r();
+          const tint = r();
+          const wx = b.x + size * 0.25 + cc * size * 0.32;
+          const wy = top + size * 0.25 + rr * size * 0.42;
+          if (wy > H - size * 0.3) continue;
+          if (night && on < P.lit) g.fillStyle = tint < 0.55 ? 'rgba(255, 214, 0, 0.3)' : tint < 0.8 ? 'rgba(0, 240, 255, 0.28)' : 'rgba(176, 38, 255, 0.3)';
+          else g.fillStyle = winOff;
+          wrap(wx, size * 0.18, (x) => g.fillRect(x, wy, size * 0.18, size * 0.22));
+        }
+      }
+      // Aires acondicionados en la fachada.
+      for (let k = 0; k < 3; k++) {
+        const ax = b.x + r() * (b.w - size * 0.4), ay = top + size + r() * (b.h - size * 2);
+        g.fillStyle = night ? '#232a55' : mix(body, '#8a93aa', 0.35);
+        wrap(ax, size * 0.35, (x) => g.fillRect(x, ay, size * 0.35, size * 0.22));
+      }
+      // Puente aéreo hacia el edificio siguiente.
+      const nb = midB[i + 1];
+      if (nb && r() < P.bridge) {
+        const by = Math.min(top, H - nb.h) + size * R(0.8, 2.2);
+        if (by < actionTop) {
+          const bx = b.x + b.w, bw = nb.x - bx;
+          wrap(bx, bw, (x) => {
+            g.fillStyle = night ? '#1b2046' : mix(body, '#2a2f42', 0.2);
+            g.fillRect(x, by, bw, size * 0.32);
+            g.fillStyle = night ? 'rgba(0, 240, 255, 0.55)' : mix(body, '#ffffff', 0.25);
+            for (let lx = x + size * 0.15; lx < x + bw; lx += size * 0.35) g.fillRect(lx, by + size * 0.1, size * 0.16, size * 0.1);
+          });
+        }
+      }
+      // Cables entre edificios.
+      if (nb) {
+        g.strokeStyle = night ? '#070a1f' : mix(body, '#1a1f33', 0.5);
+        g.lineWidth = Math.max(1, size * 0.025);
+        for (let k = 0; k < P.cables; k++) {
+          const y1 = top + size * R(0.4, 2), y2 = H - nb.h + size * R(0.4, 2);
+          const x1 = b.x + b.w, x2 = nb.x;
+          wrap(x1, x2 - x1, (dx) => {
+            g.beginPath(); g.moveTo(dx, y1);
+            g.quadraticCurveTo(dx + (x2 - x1) / 2, Math.max(y1, y2) + size * 0.8, dx + x2 - x1, y2); g.stroke();
+          });
+        }
+      }
+      if (m === 'day') {
+        // Estos se deciden una sola vez (en la pasada de día) y se dibujan como elementos animados.
+        roofLights.push({ layer: 'mid', x: b.x + b.w * 0.6 + size * 0.17, y: top - size * 0.35, phase: rnd() });
+        if (rnd() < P.vents / 6) vents.push({ x: b.x + b.w * 0.15 + size * 0.2, y: top - size * 0.5, next: rnd() });
+        const faceTop = top + size * 0.6, faceBottom = Math.min(actionTop, H - size * 0.5);
+        if (faceBottom - faceTop > size * 0.9) {
+          // Con letrero vertical, lo demás deja libre la franja derecha; sin él, el letrero puede sobresalir.
+          const hasV = rnd() < P.vsign;
+          const cx = hasV ? b.x + (b.w - size * 0.9) / 2 : b.x + b.w / 2;
+          const maxW = hasV ? b.w - size * 1.1 : b.w + size * 0.6;
+          const screenW = hasV ? b.w - size * 1.15 : b.w - size * 0.4;
+          if (rnd() < P.screen && screenW > size * 0.8) screens.push({ x: b.x + size * 0.2, y: faceTop + size * 0.3, w: screenW, h: Math.min(size * 1.6, faceBottom - faceTop - size * 0.4), kind: signs.length + screens.length });
+          else if (rnd() < P.sign) signs.push({ x: cx, y: faceTop + (faceBottom - faceTop) * R(0.1, 0.4), vertical: false, n: signs.length, maxW });
+          if (hasV) signs.push({ x: b.x + b.w - size * 0.45, y: faceTop, vertical: true, n: signs.length, maxH: faceBottom - faceTop });
+          if (rnd() < P.extraSign) signs.push({ x: cx, y: faceTop + (faceBottom - faceTop) * 0.72, vertical: false, n: signs.length + 3, maxW });
+        }
+        if (i % P.holo === 0 && top - size * 3 > H * 0.2) holos.push({ x: b.x + b.w / 2, y: top - size * 1.9, k: holos.length });
+      }
+    });
+  });
+
+  // --- Primer plano (detrás de la pasarela): postes, cables y faroles ---
+  const near = make(H - size * 4.6, (g, m) => {
+    const color = m === 'day' ? mix(skyDay, '#2a2f42', 0.55) : '#0c1030';
+    const spacing = size * 4.2;
+    const postH = size * 4.3;
+    g.fillStyle = color;
+    g.strokeStyle = color;
+    for (let x = size; x < tileW + spacing; x += spacing) {
+      wrap(x, size * 0.2, (xx) => {
+        g.fillRect(xx, H - postH, Math.max(2, size * 0.12), postH);
+        g.fillRect(xx - size * 0.35, H - postH + size * 0.25, size * 0.82, Math.max(2, size * 0.06));
+      });
+    }
+    g.lineWidth = Math.max(1, size * 0.03);
+    for (let x = size; x < tileW; x += spacing) {
+      for (const dy of [0.25, 0.45, 0.62]) {
+        g.beginPath();
+        const y = H - postH + size * dy;
+        g.moveTo(x, y);
+        g.quadraticCurveTo(x + spacing / 2, y + size * (0.7 + dy), x + spacing, y);
+        g.stroke();
+      }
+    }
+    if (m === 'night') {
+      g.fillStyle = 'rgba(0, 240, 255, 0.55)';
+      for (let x = size; x < tileW + spacing; x += spacing) wrap(x, 4, (xx) => g.fillRect(xx - size * 0.3, H - postH + size * 0.33, size * 0.25, Math.max(2, size * 0.05)));
+    }
+  });
+
+  // --- Letreros (horizontales y verticales) ---
+  const WORDS = ['BAR', 'HOTEL', '24H', 'CAFÉ', 'RAMEN', 'CLUB', 'TACOS', 'NEÓN', 'ABIERTO', 'NEO'];
+  const meas = document.createElement('canvas').getContext('2d');
+  const textW = (t, px) => { meas.font = `700 ${px}px sans-serif`; return meas.measureText(t).width; };
+  const VWORDS = ['HOTEL', 'BAR', 'NEÓN', 'CAFÉ', '24H', 'CLUB'];
+  const signSprites = [];
+  for (const s of signs) {
+    const color = NEON[s.n % NEON.length];
+    let text = s.vertical ? VWORDS[s.n % VWORDS.length] : WORDS[s.n % WORDS.length];
+    if (!s.vertical) { // palabra que quepa completa en su edificio, con letra legible (medida real)
+      const fits = (t) => textW(t, size * 0.32) + size * 0.5 <= s.maxW;
+      const SYMBOLS = ['◆', '●', '▲', '★'];
+      if (!fits(text)) text = [...WORDS.slice(s.n % WORDS.length), ...WORDS].find(fits) || SYMBOLS[s.n % SYMBOLS.length];
+    }
+    let fontPx = size * (s.vertical ? 0.36 : text.length > 4 ? 0.36 : 0.48);
+    let w, h;
+    if (s.vertical) { w = size * 0.62; h = Math.min(s.maxH, fontPx * 1.05 * text.length + size * 0.4); }
+    else {
+      fontPx = Math.max(size * 0.32, Math.min(fontPx, (fontPx * (s.maxW - size * 0.5)) / textW(text, fontPx)));
+      w = Math.min(s.maxW, textW(text, fontPx) + size * 0.5); h = fontPx + size * 0.5;
+    }
+    const spr = neonSprite(w, h, (g, on) => {
+      g.fillStyle = on ? 'rgba(8, 10, 26, 0.7)' : 'rgba(20, 22, 35, 0.55)';
+      g.fillRect(0, 0, w, h);
+      g.lineWidth = Math.max(1, size * 0.04);
+      g.strokeStyle = on ? rgba(color, 0.9) : mix(color, '#3a3f55', 0.8);
+      g.strokeRect(size * 0.06, size * 0.06, w - size * 0.12, h - size * 0.12);
+      g.font = `700 ${fontPx}px sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      if (on) { g.shadowColor = color; g.shadowBlur = size * 0.3; }
+      g.fillStyle = on ? mix(color, '#ffffff', 0.45) : mix(color, '#3a3f55', 0.72);
+      if (s.vertical) {
+        const chars = [...text];
+        const step = (h - size * 0.4) / chars.length;
+        chars.forEach((ch, i) => g.fillText(ch, w / 2, size * 0.2 + step * (i + 0.5)));
+      } else g.fillText(text, w / 2, h / 2);
+    });
+    signSprites.push({ ...spr, x: s.x - w / 2, y: Math.min(s.y, actionTop - h - size * 0.1), color, threshold: 0.42 + ((s.n * 0.37) % 1) * 0.07, lit: false, flicker: 0 });
+  }
+  // Descarta letreros que se enciman (también al empalmar el mosaico).
+  const kept = [];
+  const blockers = screens.map((sc) => ({ x: sc.x, y: sc.y, w: sc.w, h: sc.h })); // tampoco sobre pantallas
+  for (const s of signSprites) {
+    if (blockers.some((k) => [0, tileW, -tileW].some((sh) => s.x < k.x + sh + k.w + size * 0.1 && k.x + sh < s.x + s.w + size * 0.1 && s.y < k.y + k.h && k.y < s.y + s.h))) continue;
+    const clash = kept.some((k) => [0, tileW, -tileW].some((sh) => s.x < k.x + sh + k.w + size * 0.15 && k.x + sh < s.x + s.w + size * 0.15 && s.y < k.y + k.h && k.y < s.y + s.h));
+    if (!clash) kept.push(s);
+  }
+
+  // --- Pantallas gigantes: 3 cuadros pintados una vez que se alternan ---
+  const screenSprites = screens.map((sc, i) => {
+    const color = NEON[i % NEON.length];
+    const other = NEON[(i + 1) % NEON.length];
+    const frames = [0, 1, 2].map((f) => {
+      const [c, g] = offscreen(sc.w, sc.h);
+      g.fillStyle = '#05060f'; g.fillRect(0, 0, sc.w, sc.h);
+      const grad = g.createLinearGradient(0, 0, sc.w, sc.h);
+      grad.addColorStop(0, rgba(color, 0.85)); grad.addColorStop(1, rgba(other, 0.75));
+      g.fillStyle = grad;
+      if (f === 0) { g.fillRect(size * 0.1, size * 0.1, sc.w - size * 0.2, sc.h - size * 0.2); }
+      if (f === 1) { for (let k = 0; k < 5; k++) g.fillRect(size * 0.15, size * 0.15 + k * (sc.h - size * 0.3) / 5, (sc.w - size * 0.3) * (0.4 + 0.6 * ((k * 7 + i) % 5) / 4), (sc.h - size * 0.3) / 7); }
+      if (f === 2) { g.beginPath(); g.arc(sc.w / 2, sc.h / 2, Math.min(sc.w, sc.h) * 0.35, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      const word = ['NEO', '2099', 'RUN'][(i + f) % 3];
+      let px = Math.min(sc.h * 0.32, size * 0.6);
+      px = Math.min(px, (px * sc.w * 0.8) / textW(word, px)); // que el texto quepa en la pantalla
+      g.font = `800 ${px}px sans-serif`;
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText(word, sc.w / 2, sc.h / 2);
+      g.fillStyle = 'rgba(0, 0, 0, 0.25)';
+      for (let y = 0; y < sc.h; y += 3) g.fillRect(0, y, sc.w, 1); // líneas de barrido
+      return c;
+    });
+    return { ...sc, frames, color };
+  });
+
+  // --- Hologramas: figuras translúcidas sobre los techos ---
+  const holoSprites = holos.map((hl, i) => {
+    const color = i % 2 ? NEON[1] : NEON[0];
+    const s = size * 2.4;
+    const [c, g] = offscreen(s, s);
+    g.shadowColor = color; g.shadowBlur = size * 0.4;
+    g.strokeStyle = rgba(color, 0.9); g.lineWidth = Math.max(1.5, size * 0.06);
+    if (i % 3 === 0) { // anillo con rombo
+      g.beginPath(); g.arc(s / 2, s / 2, s * 0.35, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.moveTo(s / 2, s * 0.25); g.lineTo(s * 0.72, s / 2); g.lineTo(s / 2, s * 0.75); g.lineTo(s * 0.28, s / 2); g.closePath(); g.stroke();
+    } else if (i % 3 === 1) { // cara de perfil geométrica
+      g.beginPath(); g.moveTo(s * 0.35, s * 0.2); g.lineTo(s * 0.65, s * 0.25); g.lineTo(s * 0.72, s * 0.5); g.lineTo(s * 0.62, s * 0.55); g.lineTo(s * 0.66, s * 0.72); g.lineTo(s * 0.4, s * 0.8); g.lineTo(s * 0.3, s * 0.5); g.closePath(); g.stroke();
+      g.beginPath(); g.moveTo(s * 0.5, s * 0.4); g.lineTo(s * 0.64, s * 0.4); g.stroke();
+    } else { // texto
+      g.font = `800 ${s * 0.3}px sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.strokeText('NEO', s / 2, s / 2);
+    }
+    g.shadowBlur = 0;
+    g.fillStyle = rgba(color, 0.12);
+    for (let y = 0; y < s; y += 4) g.fillRect(0, y, s, 2);
+    return { x: hl.x - s / 2, y: hl.y - s / 2, w: s, h: s, canvas: c, color, phase: i * 1.7 };
+  });
+
+  // --- Vehículos voladores (capa del fondo) ---
+  const vRnd = seeded(5);
+  const vehicles = [];
+  for (let i = 0; i < P.vehicles; i++) {
+    vehicles.push({ x: vRnd() * width, y: H * (0.12 + vRnd() * 0.3), v: (vRnd() < 0.5 ? -1 : 1) * size * (1.5 + vRnd() * 3), s: 0.7 + vRnd() * 0.6, light: NEON[i % 2 === 0 ? 0 : 2] });
+  }
+
+  // --- Neblina sobre la franja de juego: baja el contraste del fondo detrás del androide ---
+  const fog = {};
+  for (const m of ['day', 'night']) {
+    const [c, g] = offscreen(4, size * 4);
+    const grad = g.createLinearGradient(0, 0, 0, size * 4);
+    const col = m === 'day' ? DAY[1] : '#0a0e27';
+    grad.addColorStop(0, rgba(col, 0));
+    grad.addColorStop(1, rgba(col, m === 'day' ? 0.45 : 0.55));
+    g.fillStyle = grad; g.fillRect(0, 0, 4, size * 4);
+    fog[m] = c;
+  }
+
+  // --- Pasarela metálica ---
+  const span = size * 1.6;
+  const walkW = Math.ceil(width / span + 2) * span;
+  const deckH = size * 0.28;
+  const walkway = {};
+  for (const m of ['day', 'night']) {
+    const [c, g] = offscreen(walkW, height - groundY, true);
+    g.fillStyle = m === 'day' ? '#3a4058' : '#151a3d';
+    g.fillRect(0, 0, walkW, height - groundY);
+    g.strokeStyle = m === 'day' ? '#2e3348' : '#10142f';
+    g.lineWidth = Math.max(2, size * 0.12);
+    g.beginPath();
+    for (let x = 0; x < walkW; x += span) {
+      g.moveTo(x, deckH); g.lineTo(x + span / 2, height - groundY);
+      g.moveTo(x + span, deckH); g.lineTo(x + span / 2, height - groundY);
+    }
+    g.stroke();
+    g.fillStyle = m === 'day' ? '#5a6278' : '#1f2548';
+    g.fillRect(0, 0, walkW, deckH);
+    g.fillStyle = m === 'day' ? '#8a93aa' : '#3a4476';
+    g.fillRect(0, 0, walkW, Math.max(2, size * 0.05));
+    walkway[m] = c;
+  }
+
+  city = {
+    tileW, far, mid, near, signs: kept, screens: screenSprites, holos: holoSprites, roofLights, vents, vehicles, fog,
+    walkway: { ...walkway, y0: 0, h: height - groundY, w: walkW, opaque: true, cache: { step: -1, canvas: null }, span, deckH },
+  };
+}
+
+function skyImage(c) {
+  const [top, bottom] = skyColors(c);
+  const key = `${top}${bottom}${width}${height}`;
   if (skyCache.key !== key) {
-    const dpr = window.devicePixelRatio || 1;
-    const c = skyCache.canvas;
-    c.width = Math.round((width + 2 * m) * dpr);
-    c.height = Math.round((groundY + m) * dpr);
-    const g = c.getContext('2d');
-    const grad = g.createLinearGradient(0, 0, 0, c.height);
-    grad.addColorStop(0, mixColor(SKY_TOP[0], SKY_TOP[1], step / 50));
-    grad.addColorStop(1, mixColor(SKY_HORIZON[0], SKY_HORIZON[1], step / 50));
+    const [cv, g] = offscreen(width + 2 * size, groundY + size, true);
+    const grad = g.createLinearGradient(0, 0, 0, groundY + size);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bottom);
     g.fillStyle = grad;
-    g.fillRect(0, 0, c.width, c.height);
-    skyCache.key = key;
+    g.fillRect(0, 0, width + 2 * size, groundY + size);
+    skyCache = { key, canvas: cv };
   }
   return skyCache.canvas;
 }
 
-function drawBackground(m) {
-  ctx.drawImage(skyImage(m), -m, -m, width + 2 * m, groundY + m);
-
-  // Nubes: solo en la mitad alta del cielo, lejos de los obstáculos.
-  const cloudPeriod = width / size + 4;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-  for (const [f, y, s] of CLOUDS.items) {
-    const x = wrapX(f, CLOUDS.speed, cloudPeriod, 2);
-    const cy = groundY * y;
-    const r = s * size * 0.45;
-    ctx.beginPath();
-    ctx.arc(x, cy, r, 0, Math.PI * 2);
-    ctx.arc(x + r * 0.9, cy - r * 0.35, r * 0.8, 0, Math.PI * 2);
-    ctx.arc(x + r * 1.8, cy, r * 0.7, 0, Math.PI * 2);
-    ctx.fill();
+// Mezcla día/noche de una capa, cacheada por escalón (1/24): una sola copia por cuadro.
+const STEPS = 24;
+function blended(layer, d) {
+  const step = Math.round(d * STEPS);
+  if (step === 0) return layer.day;
+  if (step === STEPS) return layer.night;
+  if (layer.cache.step !== step) {
+    const [c, g] = offscreen(layer.w, layer.h, layer.opaque);
+    g.drawImage(layer.day, 0, 0, layer.w, layer.h);
+    g.globalAlpha = step / STEPS;
+    g.drawImage(layer.night, 0, 0, layer.w, layer.h);
+    layer.cache = { step, canvas: c };
   }
+  return layer.cache.canvas;
+}
 
-  // Colinas: tenues, para que los obstáculos resalten delante.
-  const hillMargin = Math.max(...HILLS.items.map(([, w]) => w)) + 1; // +1: que salga del todo, sin dejar un borde
-  const hillPeriod = width / size + 2 * hillMargin;
-  ctx.fillStyle = 'rgba(107, 142, 35, 0.28)';
-  for (const [f, w, h] of HILLS.items) {
-    const x = wrapX(f, HILLS.speed, hillPeriod, hillMargin);
-    ctx.beginPath();
-    ctx.ellipse(x + (w * size) / 2, groundY, (w * size) / 2, h * size, 0, Math.PI, 0);
-    ctx.fill();
+const LAYER_SPEED = { far: 0.1, mid: 0.3, near: 0.6 };
+function drawTile(layer, layerSpeed, d) {
+  const tile = blended(layer, d);
+  const w = layer.w;
+  const x = -((distance * size * layerSpeed) % w);
+  ctx.drawImage(tile, x, layer.y0, w, layer.h);
+  if (x + w < width) ctx.drawImage(tile, x + w, layer.y0, w, layer.h);
+}
+
+// Posiciones visibles en pantalla de un elemento del mosaico de una capa.
+function* screenXs(x, w, layerSpeed) {
+  const tw = city.tileW;
+  const off = (distance * size * layerSpeed) % tw;
+  for (const base of [x - off, x - off + tw, x - off - tw]) if (base + w > 0 && base < width) yield base;
+}
+
+function updateCity(dt, c) {
+  const on = neonLevel(c);
+  for (const s of city.signs) {
+    const want = c >= s.threshold && on > 0.2;
+    if (want && !s.lit) s.flicker = 0.8; // al anochecer, cada letrero parpadea antes de quedar encendido
+    s.lit = want;
+    s.flicker = Math.max(0, s.flicker - dt);
   }
+  for (const v of city.vehicles) {
+    v.x += v.v * dt;
+    if (v.v > 0 && v.x > width + size * 2) v.x = -size * 2;
+    if (v.v < 0 && v.x < -size * 2) v.x = width + size * 2;
+  }
+  // Vapor de los ductos.
+  for (const vt of city.vents) {
+    vt.next -= dt;
+    if (vt.next <= 0) {
+      vt.next = 0.25 + fxRandom() * 0.3;
+      fx.steam.push({ tx: vt.x + (fxRandom() - 0.5) * size * 0.2, y: vt.y, r: size * 0.2, life: 1, vx: size * (0.2 + fxRandom() * 0.4) });
+    }
+  }
+  for (const p of fx.steam) { p.tx += p.vx * dt; p.y -= size * 0.8 * dt; p.r += size * 0.35 * dt; p.life -= dt / 1.6; }
+  fx.steam = fx.steam.filter((p) => p.life > 0);
+}
 
-  // Suelo con marcas que avanzan a la velocidad del juego.
-  ctx.fillStyle = '#6b8e23';
-  ctx.fillRect(-m, groundY, width + 2 * m, height - groundY + m);
-  ctx.fillStyle = '#4a6318';
-  ctx.fillRect(-m, groundY, width + 2 * m, 4);
-  ctx.fillStyle = '#5d7d1e';
-  const markPeriod = Math.ceil(width / size / GROUND_MARK_SPACING + 2) * GROUND_MARK_SPACING;
-  for (let i = 0; i * GROUND_MARK_SPACING < markPeriod; i++) {
-    const x = wrapX((i * GROUND_MARK_SPACING) / markPeriod, 1, markPeriod, 1);
-    ctx.fillRect(x, groundY + size * 0.45, size * 0.5, Math.max(2, size * 0.08));
+function drawVehicles(d) {
+  for (const v of city.vehicles) {
+    const s = size * 0.5 * v.s;
+    const dir = Math.sign(v.v);
+    ctx.fillStyle = mix(mix(DAY[1], BUILDING_DAY, 0.5), '#0c0f2a', d);
+    ctx.beginPath(); // carrocería en cuña con cabina
+    ctx.moveTo(v.x + dir * s, v.y);
+    ctx.lineTo(v.x + dir * s * 0.3, v.y - s * 0.32);
+    ctx.lineTo(v.x - dir * s * 0.6, v.y - s * 0.3);
+    ctx.lineTo(v.x - dir * s, v.y + s * 0.05);
+    ctx.lineTo(v.x - dir * s * 0.7, v.y + s * 0.2);
+    ctx.lineTo(v.x + dir * s * 0.7, v.y + s * 0.2);
+    ctx.closePath();
+    ctx.fill();
+    // Estela de luz detrás.
+    ctx.fillStyle = rgba(v.light, 0.25 + 0.5 * d);
+    ctx.fillRect(dir > 0 ? v.x - s * 3 : v.x + s, v.y - 1, s * 2, Math.max(1.5, s * 0.1));
+    ctx.fillStyle = rgba(v.light, 0.6 + 0.4 * d);
+    ctx.fillRect(dir > 0 ? v.x - s : v.x + s * 0.8, v.y - s * 0.08, s * 0.2, s * 0.16);
   }
 }
+
+function drawRoofLights(layer, d) {
+  const blink = (t, ph) => ((t + ph) % 1.4) < 0.25;
+  ctx.fillStyle = WARNING;
+  for (const l of city.roofLights) {
+    if (l.layer !== layer || !blink(clock, l.phase * 1.4)) continue;
+    const r = Math.max(1.5, size * (layer === 'far' ? 0.05 : 0.07));
+    for (const x of screenXs(l.x - r, 2 * r, LAYER_SPEED[layer])) {
+      ctx.globalAlpha = 0.55 + 0.45 * d;
+      ctx.fillRect(x, l.y - r, 2 * r, 2 * r);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawMidExtras(c, d) {
+  const on = neonLevel(c);
+  // Pantallas: de día apagadas (casi negras), de noche encendidas; cambian de cuadro cada 0,7 s.
+  for (const sc of city.screens) {
+    const frame = sc.frames[Math.floor(clock / 0.7 + sc.kind) % 3];
+    for (const x of screenXs(sc.x, sc.w, LAYER_SPEED.mid)) {
+      ctx.fillStyle = '#0a0b16';
+      ctx.fillRect(x, sc.y, sc.w, sc.h);
+      ctx.globalAlpha = 0.25 + 0.75 * on;
+      ctx.drawImage(frame, x, sc.y, sc.w, sc.h);
+      ctx.globalAlpha = 1;
+    }
+  }
+  // Letreros: apagados de día; al anochecer parpadean y se encienden.
+  for (const s of city.signs) {
+    let level = s.lit ? on : 0;
+    if (s.flicker > 0) level = fxRandom() < 0.45 ? 0 : on;
+    for (const x of screenXs(s.x, s.w, LAYER_SPEED.mid)) {
+      ctx.drawImage(s.off, x, s.y, s.w, s.h);
+      if (level > 0) { ctx.globalAlpha = level; ctx.drawImage(s.on, x, s.y, s.w, s.h); ctx.globalAlpha = 1; }
+    }
+  }
+  // Hologramas: tenues y con leve parpadeo.
+  for (const h of city.holos) {
+    const a = (0.12 + 0.55 * on) * (0.85 + 0.15 * Math.sin(clock * 9 + h.phase)) * (fxRandom() < 0.02 ? 0.3 : 1);
+    for (const x of screenXs(h.x, h.w, LAYER_SPEED.mid)) {
+      ctx.globalAlpha = a;
+      ctx.drawImage(h.canvas, x, h.y + Math.sin(clock * 1.3 + h.phase) * size * 0.08, h.w, h.h);
+    }
+  }
+  ctx.globalAlpha = 1;
+  // Vapor: bocanadas suaves y translúcidas (de noche, apenas iluminadas).
+  for (const p of fx.steam) {
+    for (const x of screenXs(p.tx - p.r, 2 * p.r, LAYER_SPEED.mid)) {
+      ctx.globalAlpha = (0.22 - 0.08 * d) * p.life;
+      ctx.drawImage(puff(), x, p.y - p.r, 2 * p.r, 2 * p.r);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawWalkway(c) {
+  const wk = city.walkway;
+  const x = -((distance * size) % wk.span);
+  ctx.drawImage(blended(wk, darkness(c)), x, groundY, wk.w, wk.h);
+  const on = neonLevel(c);
+  // De noche la placa refleja los letreros y pantallas de la capa media (se mueven con ellos).
+  if (on > 0) {
+    const refl = (sx, w, color, a) => {
+      for (const xx of screenXs(sx, w, LAYER_SPEED.mid)) {
+        ctx.fillStyle = rgba(color, a * on);
+        ctx.fillRect(xx + w * 0.2, groundY + 1, w * 0.6, wk.deckH - 1);
+        ctx.fillStyle = rgba(color, a * on * 0.4);
+        ctx.fillRect(xx + w * 0.35, groundY + wk.deckH, w * 0.3, size * 0.25);
+      }
+    };
+    for (const s of city.signs) if (s.lit) refl(s.x, s.w, s.color, 0.28);
+    for (const sc of city.screens) refl(sc.x, sc.w, sc.color, 0.22);
+  }
+  ctx.fillStyle = rgba('#00f0ff', 0.35 + 0.65 * on);
+  const dash = size * 0.9;
+  const period = dash + size * 0.6;
+  const o2 = -((distance * size) % period);
+  const ly = groundY + wk.deckH * 0.55;
+  for (let xx = o2; xx < width; xx += period) ctx.fillRect(xx, ly, dash, Math.max(2, size * 0.06));
+}
+
+function drawFog(d) {
+  const top = groundY - size * 4;
+  ctx.drawImage(city.fog.day, 0, top, width, size * 4);
+  if (d > 0) { ctx.globalAlpha = d; ctx.drawImage(city.fog.night, 0, top, width, size * 4); ctx.globalAlpha = 1; }
+}
+
+// Bocanada de vapor: degradado suave pintado una vez (sin bordes duros).
+let puffSprite = null;
+function puff() {
+  if (!puffSprite) {
+    const [c, g] = offscreen(64, 64);
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.45)');
+    grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+    puffSprite = c;
+  }
+  return puffSprite;
+}
+
 
 function drawPlayer() {
   // Estira en el aire según la velocidad y aplica el golpe de despegue o aterrizaje.
@@ -412,7 +950,17 @@ function draw() {
   ctx.save();
   if (shake) ctx.translate(random(-shake, shake), random(-shake, shake));
 
-  drawBackground(m);
+  const d = darkness(cycle);
+  ctx.drawImage(skyImage(cycle), -m, -m, width + 2 * m, groundY + m);
+  drawVehicles(d);
+  drawTile(city.far, LAYER_SPEED.far, d);
+  drawRoofLights('far', d);
+  drawTile(city.mid, LAYER_SPEED.mid, d);
+  drawMidExtras(cycle, d);
+  drawRoofLights('mid', d);
+  drawTile(city.near, LAYER_SPEED.near, d);
+  drawFog(d);
+  drawWalkway(cycle);
 
   // Polvo: detrás de los obstáculos para no taparlos.
   for (const p of fx.particles) {
@@ -448,7 +996,30 @@ function draw() {
     ]);
   }
 
+  if (DEBUG) drawDebug();
   drawVersion();
+}
+
+// ?debug=1: FPS arriba a la izquierda y la zona de choque real del personaje.
+function drawDebug() {
+  const n = frameTimes.length;
+  const fps = n > 1 ? Math.round((1000 * (n - 1)) / (frameTimes[n - 1] - frameTimes[0])) : 0;
+  const left = ((width * 0.2) / size + HITBOX_INSET) * size;
+  const bottom = groundY - (player.y + HITBOX_INSET) * size;
+  const top = groundY - (player.y + 1) * size;
+  ctx.save();
+  ctx.setLineDash([4, 3]);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeRect(left, top, (1 - 2 * HITBOX_INSET) * size, bottom - top);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillRect(4, 4, 64, 20);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '600 12px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${fps} fps`, 10, 14);
 }
 
 let lastTime = 0;
@@ -456,8 +1027,14 @@ function loop(time) {
   // Tope de 1/30 s por cuadro para que el salto no se desborde tras una pausa.
   const dt = lastTime ? Math.min((time - lastTime) / 1000, 1 / 30) : 0;
   lastTime = time;
+  frameTimes.push(time);
+  while (frameTimes.length > 60) frameTimes.shift();
   if (state === 'playing') update(dt);
-  if (state !== 'paused') updateFx(dt);
+  if (state !== 'paused') {
+    clock += dt;
+    updateFx(dt);
+    updateCity(dt, cycle);
+  }
   draw();
   requestAnimationFrame(loop);
 }

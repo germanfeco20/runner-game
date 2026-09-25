@@ -20,7 +20,7 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 - PERSONAJE: androide humanoide de perfil que corre hacia la derecha. Cuerpo mitad humano (chaqueta oscura) y mitad robot: brazo derecho y pierna izquierda metálicos, con articulaciones visibles y una línea de luz cian. Visor u ojo que brilla. Animaciones: carrera, salto, aterrizaje (se mantiene el estirar y aplastar) y choque (chispas).
 - REGLA DE JUEGO: la zona de choque del personaje no cambia de tamaño. El dibujo puede ser un poco más grande, pero la jugabilidad no cambia.
 - CIUDAD: 3 capas con movimiento a distinta velocidad: siluetas de rascacielos al fondo; edificios medios con ventanas y letreros de neón (palabras cortas en español o formas abstractas); primer plano con postes y cables. Suelo: calle o pasarela metálica con líneas de luz.
-- MÁS NEÓN Y TECNOLOGÍA: anuncios holográficos, pantallas gigantes, letreros verticales, luces de aviso en techos (rojo anaranjado #ff5a36, solo en techos), antenas, puentes aéreos, cables, vehículos voladores en el fondo, vapor de ductos y, de noche, reflejos de neón en la pasarela. Letreros y pantallas quedan por encima de la franja de juego; una neblina baja el contraste detrás del androide. Densidad (Denso / Muy denso): pendiente de elegir en arte.html.
+- MÁS NEÓN Y TECNOLOGÍA: anuncios holográficos, pantallas gigantes, letreros verticales, luces de aviso en techos (rojo anaranjado #ff5a36, solo en techos), antenas, puentes aéreos, cables, vehículos voladores en el fondo, vapor de ductos y, de noche, reflejos de neón en la pasarela. Letreros y pantallas quedan por encima de la franja de juego; una neblina baja el contraste detrás del androide. Densidad elegida: Muy denso.
 - OBSTÁCULOS: barreras de energía o bloques con franjas de peligro, en magenta/rojo #ff2e63. Ese color es EXCLUSIVO de los obstáculos y no se usa en el fondo.
 - CICLO DÍA/NOCHE: día → atardecer → noche → amanecer, en transición gradual (ciclo completo de ~120 s). De día (variante B elegida): cielo azul frío pálido (#9fc4d8 a #d6e4ec), edificios gris azulado (#4a5068) con bruma y neones casi apagados. De noche: fondo azul muy oscuro (#0a0e27), edificios #151a3d, neones encendidos en cian #00f0ff, violeta #b026ff y amarillo #ffd600. Al anochecer, los letreros se encienden con un parpadeo.
 - LEGIBILIDAD: el fondo siempre tiene menos contraste que el personaje y los obstáculos, de día y de noche.
@@ -58,8 +58,8 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 |---|---|---|
 | A1.1 | arte.html, parte "arte 1": androide (carrera, salto, aterrizaje, choque) sobre la pasarela, fondo liso día/noche, zona de choque real, fps | Hecho (aprobado; ajustes de cadencia y humo en arte 2) |
 | A1.2 | arte.html, parte "arte 2": ciudad en 3 capas, ciclo día/noche con parpadeo, 2 tipos de obstáculo, 3 variantes de día | Hecho (Día B elegido; ciudad rehecha en arte 3) |
-| A1.3 | arte.html, parte "arte 3": ciudad con mucho más neón y tecnología, densidad Denso / Muy denso, pierna sin pie, humo oscuro de día | En revisión |
-| A2 | Ciudad, pasarela y ciclo día/noche en el juego | Pendiente |
+| A1.3 | arte.html, parte "arte 3": ciudad con mucho más neón y tecnología, densidad Denso / Muy denso, pierna sin pie, humo oscuro de día | Hecho (aprobado: Muy denso) |
+| A2 | Ciudad (Muy denso), pasarela y ciclo día/noche en el juego, empezando al atardecer; modo ?debug=1 con FPS y zona de choque | Hecho (v14) |
 | A3 | Obstáculos #ff2e63 en el juego | Pendiente |
 | A4 | Androide en el juego, zona de choque idéntica; corregir desfase al redimensionar en PC | Pendiente |
 | A5 | Cierre: fluidez, contraste día/noche, ícono con el androide | Pendiente |
