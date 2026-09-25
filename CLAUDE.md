@@ -13,8 +13,17 @@ Juego casual para celular: endless runner de un toque. El personaje corre solo; 
 - Control: toque (pointerdown). También clic y barra espaciadora para probar en PC.
 - Sin scroll, zoom ni selección de texto al tocar.
 - Canvas responsive y nítido en pantallas de alta densidad (devicePixelRatio).
-- Gráficos: solo formas geométricas y colores por ahora. Sin imágenes externas.
 - Récord guardado en localStorage.
+
+## Dirección de arte
+- TEMA: ciudad cyberpunk con mucho neón. El personaje es un androide que corre.
+- PERSONAJE: androide humanoide de perfil que corre hacia la derecha. Cuerpo mitad humano (chaqueta oscura) y mitad robot: brazo derecho y pierna izquierda metálicos, con articulaciones visibles y una línea de luz cian. Visor u ojo que brilla. Animaciones: carrera, salto, aterrizaje (se mantiene el estirar y aplastar) y choque (chispas).
+- REGLA DE JUEGO: la zona de choque del personaje no cambia de tamaño. El dibujo puede ser un poco más grande, pero la jugabilidad no cambia.
+- CIUDAD: 3 capas con movimiento a distinta velocidad: siluetas de rascacielos al fondo; edificios medios con ventanas y letreros de neón (palabras cortas en español o formas abstractas); primer plano con postes y cables. Suelo: calle o pasarela metálica con líneas de luz.
+- OBSTÁCULOS: barreras de energía o bloques con franjas de peligro, en magenta/rojo #ff2e63. Ese color es EXCLUSIVO de los obstáculos y no se usa en el fondo.
+- CICLO DÍA/NOCHE: día → atardecer → noche → amanecer, en transición gradual (ciclo completo de ~120 s). De día: cielo con smog naranja/gris (#e8a06a a #c9b8a8), edificios gris azulado (#4a5068) y neones casi apagados. De noche: fondo azul muy oscuro (#0a0e27), edificios #151a3d, neones encendidos en cian #00f0ff, violeta #b026ff y amarillo #ffd600. Al anochecer, los letreros se encienden con un parpadeo.
+- LEGIBILIDAD: el fondo siempre tiene menos contraste que el personaje y los obstáculos, de día y de noche.
+- TÉCNICA: todo dibujado con código en canvas, sin imágenes externas. Las capas fijas se dibujan una vez y se reutilizan. Brillo con moderación. Fluidez en S24 Ultra e iPhone 15.
 
 ## Cómo trabajamos
 - Un objetivo por cambio. Cambios pequeños.
